@@ -2,7 +2,7 @@ import Joi from 'joi';
 
 export const vehicleTypesUrlValidator = Joi.string()
   .required()
-  .custom((value, helpers) => {
+  .custom((value: string, helpers: any) => {
     if (!value.includes('{makeId}')) {
       return helpers.error('any.invalid');
     }
