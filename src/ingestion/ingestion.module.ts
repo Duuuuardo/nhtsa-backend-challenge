@@ -1,8 +1,10 @@
 import { HttpModule } from '@nestjs/axios';
 import { Module } from '@nestjs/common';
-
+import { MakeTransformer } from './transformers/make.transformer';
+import { VehicleTypeTransformer } from './transformers/vehicle-type.transformer';
 import { NhtsaClient } from './clients/nhtsa.client';
 import { XmlParser } from './parsers/xml.parser';
+import { IngestionTransformer } from './transformers/ingestion.transformer';
 
 @Module({
   imports: [
@@ -11,7 +13,7 @@ import { XmlParser } from './parsers/xml.parser';
       maxRedirects: 3,
     }),
   ],
-  providers: [NhtsaClient, XmlParser],
-  exports: [NhtsaClient, XmlParser],
+  providers: [NhtsaClient, XmlParser, MakeTransformer, VehicleTypeTransformer, IngestionTransformer],
+  exports: [NhtsaClient, XmlParser, MakeTransformer, VehicleTypeTransformer, IngestionTransformer],
 })
 export class IngestionModule {}
