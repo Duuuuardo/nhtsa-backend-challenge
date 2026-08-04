@@ -15,11 +15,11 @@ datasource db {
 }
 
 model Make {
-  makeId        Int           @id @default(autoincrement()) @map("make_id")
-  makeName      String        @map("make_name")
-  vehiclesTypes VehicleType[]
-  createdAt     DateTime      @default(now()) @map("created_at")
-  updatedAt     DateTime      @updatedAt @map("updated_at")
+  makeId       Int           @id @map("make_id")
+  makeName     String        @map("make_name")
+  vehicleTypes VehicleType[]
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
 
   @@map("makes")
 }

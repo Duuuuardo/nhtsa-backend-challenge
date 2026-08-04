@@ -5,6 +5,10 @@ import nhtsaConfig from './config/nhtsa.config';
 import databaseConfig from './config/database.config';
 import { envValidationSchema } from './config/env.validation';
 import { PrismaModule } from './database/prisma.module';
+import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
+import { GraphQLModule } from '@nestjs/graphql';
+import { join } from 'path';
+import { MakesModule } from './makes/makes.module';
 
 @Module({
   imports: [
@@ -19,6 +23,13 @@ import { PrismaModule } from './database/prisma.module';
       },
     }),
     PrismaModule,
+    GraphQLModule.forRoot<ApolloDriverConfig>({
+      driver: ApolloDriver,
+      autoSchemaFile: join(process.cwd(), 'src/schema.gql'),
+      sortSchema: true,
+      playground: true,
+    }),
+    MakesModule,
   ],
 })
 export class AppModule {}

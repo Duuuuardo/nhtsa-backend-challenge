@@ -1,4 +1,5 @@
 import * as Joi from 'joi';
+import { vehicleTypesUrlValidator } from './validators';
 
 const envValidationSchema = Joi.object({
   NODE_ENV: Joi.string()
@@ -9,11 +10,7 @@ const envValidationSchema = Joi.object({
   NHTSA_ALL_MAKES_URL: Joi.string()
     .uri()
     .default('https://vpic.nhtsa.dot.gov/api/vehicles/getallmakes?format=xml'),
-  NHTSA_VEHICLE_TYPES_BASE_URL: Joi.string()
-    .uri()
-    .default(
-      'https://vpic.nhtsa.dot.gov/api/vehicles/GetVehicleTypesForMakeId',
-    ),
+  NHTSA_VEHICLE_TYPES_BASE_URL: vehicleTypesUrlValidator,
   HTTP_TIMEOUT_MS: Joi.number().integer().min(1000),
   INGESTION_CONCURRENCY: Joi.number().integer().min(1).max(20).default(5),
   LOG_LEVEL: Joi.string()
