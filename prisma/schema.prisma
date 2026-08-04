@@ -1,0 +1,37 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+  engineType   = "pg"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Make {
+  makeId        Int           @id @default(autoincrement()) @map("make_id")
+  makeName      String        @map("make_name")
+  vehiclesTypes VehicleType[]
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  @@map("makes")
+}
+
+model VehicleType {
+  makeId    Int      @map("make_id")
+  typeId    Int      @map("type_id")
+  typeName  String   @map("type_name")
+  make      Make     @relation(fields: [makeId], references: [makeId])
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@id([makeId, typeId])
+  @@map("vehicle_types")
+}

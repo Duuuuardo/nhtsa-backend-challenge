@@ -4,6 +4,7 @@ import appConfig from './config/app.config';
 import nhtsaConfig from './config/nhtsa.config';
 import databaseConfig from './config/database.config';
 import { envValidationSchema } from './config/env.validation';
+import { PrismaModule } from './database/prisma.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { envValidationSchema } from './config/env.validation';
         allowUnknown: true,
       },
     }),
+    PrismaModule,
   ],
 })
 export class AppModule {}
