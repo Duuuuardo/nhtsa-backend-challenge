@@ -25,6 +25,7 @@ export class IngestionService implements OnApplicationBootstrap {
   private readonly concurrency: number;
   private readonly requestDelayMs: number;
   private readonly maxMakes: number;
+  private readonly batchSize: number;
   private readonly ingestOnStartup: boolean;
   private readonly logger = new Logger(IngestionService.name);
 
@@ -47,6 +48,10 @@ export class IngestionService implements OnApplicationBootstrap {
 
     this.maxMakes = this.configService.getOrThrow<number>('ingestion.maxMakes');
 
+    this.batchSize = this.configService.getOrThrow<number>(
+      'ingestion.batchSize',
+    );
+
     this.ingestOnStartup = this.configService.getOrThrow<boolean>(
       'ingestion.ingestOnStartup',
     );
@@ -57,15 +62,28 @@ export class IngestionService implements OnApplicationBootstrap {
       return;
     }
 
-    this.logger.log('Automatic ingestion started (INGEST_ON_STARTUP=true)');
+    this.logger.log({
+      event: 'ingestion.automatic.start',
+      ingestOnStartup: true,
+    });
 
     this.ingest()
       .then((res) =>
-        this.logger.log(
-          `Automatic ingestion completed: makesProcessed=${res.makesProcessed} persisted=${res.persisted} persistenceFailures=${res.persistenceFailures}`,
-        ),
+        this.logger.log({
+          event: 'ingestion.automatic.completed',
+          makesProcessed: res.makesProcessed,
+          persisted: res.persisted,
+          persistenceFailures: res.persistenceFailures,
+        }),
       )
-      .catch((err) => this.logger.error(`Automatic ingestion failed: ${err}`));
+      .catch((err: unknown) => {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+
+        this.logger.error({
+          event: 'ingestion.automatic.failed',
+          error: errorMessage,
+        });
+      });
   }
 
   async ingest(): Promise<IngestionResult> {
@@ -79,64 +97,109 @@ export class IngestionService implements OnApplicationBootstrap {
     const makes =
       this.maxMakes > 0 ? allMakes.slice(0, this.maxMakes) : allMakes;
 
+    this.logger.log({
+      event: 'ingestion.start',
+      makesToProcess: makes.length,
+      batchSize: this.batchSize,
+    });
+
     let vehicleTypeFetchFailures = 0;
-    const vehicleTypesByMake = new Map<number, TransformedVehicleType[]>();
+    let persisted = 0;
+    let persistenceFailures = 0;
 
-    const limit = pLimit(this.concurrency);
+    for (let offset = 0; offset < makes.length; offset += this.batchSize) {
+      const chunk = makes.slice(offset, offset + this.batchSize);
+      const vehicleTypesByMake = new Map<number, TransformedVehicleType[]>();
+      const limit = pLimit(this.concurrency);
 
-    const fetchTasks = makes.map((make) =>
-      limit(async () => {
-        try {
-          const vehicleTypes = await this.fetchVehicleTypes(make.makeId);
+      const fetchTasks = chunk.map((make) =>
+        limit(async () => {
+          try {
+            const vehicleTypes = await this.fetchVehicleTypes(make.makeId);
 
-          vehicleTypesByMake.set(make.makeId, vehicleTypes);
-        } catch {
-          vehicleTypeFetchFailures += 1;
-          this.logger.warn(
-            `Failed to fetch vehicle types for makeId=${make.makeId}`,
-          );
-          vehicleTypesByMake.set(make.makeId, []);
-        } finally {
-          if (this.requestDelayMs > 0) {
-            await this.sleep(this.requestDelayMs);
+            vehicleTypesByMake.set(make.makeId, vehicleTypes);
+          } catch {
+            vehicleTypeFetchFailures += 1;
+            this.logger.warn({
+              event: 'ingestion.vehicleTypeFetch.failure',
+              makeId: make.makeId,
+            });
+            vehicleTypesByMake.set(make.makeId, []);
+          } finally {
+            if (this.requestDelayMs > 0) {
+              await this.sleep(this.requestDelayMs);
+            }
           }
-        }
-      }),
-    );
-
-    await Promise.all(fetchTasks);
-
-    const result = this.ingestionTransformer.merge(makes, vehicleTypesByMake);
-
-    const summary = await this.ingestionRepository.save(result);
-
-    if (summary.succeeded === 0 && summary.total > 0) {
-      this.logger.error(
-        `Ingestion completely failed: total=${summary.total} failed=${summary.failed}`,
+        }),
       );
 
+      await Promise.all(fetchTasks);
+
+      const result = this.ingestionTransformer.merge(chunk, vehicleTypesByMake);
+
+      const summary = await this.ingestionRepository.save(result);
+
+      persisted += summary.succeeded;
+      persistenceFailures += summary.failed;
+
+      const processed = offset + chunk.length;
+      this.logger.debug({
+        event: 'ingestion.chunk.processed',
+        processed,
+        total: makes.length,
+        chunkSize: chunk.length,
+        persisted,
+        persistenceFailures,
+        vehicleTypeFetchFailures,
+      });
+
+      if (summary.failed > 0) {
+        this.logger.warn({
+          event: 'ingestion.chunk.failure',
+          chunkSize: chunk.length,
+          succeeded: summary.succeeded,
+          failed: summary.failed,
+        });
+      }
+    }
+
+    const total = persisted + persistenceFailures;
+
+    if (persisted === 0 && total > 0) {
+      this.logger.error({
+        event: 'ingestion.completelyFailed',
+        total,
+        failed: persistenceFailures,
+      });
+
       throw new InternalServerErrorException(
-        `Ingestion failed: total=${summary.total} failed=${summary.failed}`,
+        `Ingestion failed: total=${total} failed=${persistenceFailures}`,
       );
     }
 
     const ingestionResult: IngestionResult = {
       makesProcessed: makes.length,
       vehicleTypeFetchFailures,
-      persisted: summary.succeeded,
-      persistenceFailures: summary.failed,
+      persisted,
+      persistenceFailures,
     };
 
-    if (summary.failed > 0) {
-      this.logger.warn(
-        `Partial ingestion: total=${summary.total} succeeded=${summary.succeeded} failures=${summary.failed}`,
-      );
+    if (persistenceFailures > 0) {
+      this.logger.warn({
+        event: 'ingestion.partial',
+        total,
+        succeeded: persisted,
+        failed: persistenceFailures,
+      });
       return ingestionResult;
     }
 
-    this.logger.log(
-      `Ingestion completed: total=${summary.total} succeeded=${summary.succeeded} failures=${summary.failed}`,
-    );
+    this.logger.log({
+      event: 'ingestion.completed',
+      total,
+      succeeded: persisted,
+      failed: persistenceFailures,
+    });
 
     return ingestionResult;
   }
