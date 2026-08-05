@@ -3,9 +3,9 @@ import { Injectable } from '@nestjs/common';
 import {
   NhtsaVehicleTypeItem,
   NhtsaVehicleTypesXmlResponse,
-  OneOrMany,
 } from '../types/nhtsa-response.types';
 import { TransformedVehicleType } from '../types/transformed.types';
+import { toArray } from '../utils/one-or-many.util';
 
 @Injectable()
 export class VehicleTypeTransformer {
@@ -16,7 +16,7 @@ export class VehicleTypeTransformer {
       return [];
     }
 
-    return this.toArray(items).map((item) => this.transformItem(item));
+    return toArray(items).map((item) => this.transformItem(item));
   }
 
   private transformItem(item: NhtsaVehicleTypeItem): TransformedVehicleType {
@@ -24,9 +24,5 @@ export class VehicleTypeTransformer {
       typeId: item.VehicleTypeId,
       typeName: String(item.VehicleTypeName).trim(),
     };
-  }
-
-  private toArray<T>(value: OneOrMany<T>): T[] {
-    return Array.isArray(value) ? value : [value];
   }
 }

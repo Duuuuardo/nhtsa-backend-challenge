@@ -3,9 +3,9 @@ import { Injectable } from '@nestjs/common';
 import {
   NhtsaAllMakesItem,
   NhtsaAllMakesXmlResponse,
-  OneOrMany,
 } from '../types/nhtsa-response.types';
 import { TransformedMake } from '../types/transformed.types';
+import { toArray } from '../utils/one-or-many.util';
 
 @Injectable()
 export class MakeTransformer {
@@ -16,7 +16,7 @@ export class MakeTransformer {
       return [];
     }
 
-    return this.toArray(items).map((item) => this.transformItem(item));
+    return toArray(items).map((item) => this.transformItem(item));
   }
 
   private transformItem(item: NhtsaAllMakesItem): TransformedMake {
@@ -24,9 +24,5 @@ export class MakeTransformer {
       makeId: item.Make_ID,
       makeName: String(item.Make_Name).trim(),
     };
-  }
-
-  private toArray<T>(value: OneOrMany<T>): T[] {
-    return Array.isArray(value) ? value : [value];
   }
 }
