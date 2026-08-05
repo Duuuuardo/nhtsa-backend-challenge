@@ -1,8 +1,9 @@
 import { HttpService } from '@nestjs/axios';
-import { BadGatewayException, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AxiosError } from 'axios';
 import { firstValueFrom } from 'rxjs';
+import { NhtsaRequestError } from '../errors';
 
 @Injectable()
 export class NhtsaClient {
@@ -60,9 +61,13 @@ export class NhtsaClient {
       );
 
       if (!response.data?.trim()) {
-        throw new BadGatewayException(
-          `NHTSA returned an empty response for ${operation}`,
-        );
+        throw new NhtsaRequestError({
+          operation,
+          url,
+          attempts: 0,
+          retryable: false,
+          message: `NHTSA returned an empty response for ${operation}`,
+        });
       }
 
       return response.data;
@@ -131,8 +136,6 @@ export class NhtsaClient {
 
         return await fn();
       } catch (err: unknown) {
-        if (err instanceof BadGatewayException) throw err;
-
         const decision = shouldRetry(err);
 
         if (!decision.ok || attempt >= max) {
@@ -146,9 +149,15 @@ export class NhtsaClient {
             error: (err as AxiosError).message,
           });
 
-          throw new BadGatewayException(
-            `Failed to retrieve ${context.operation} from NHTSA`,
-          );
+          throw new NhtsaRequestError({
+            operation: context.operation,
+            url: context.url,
+            attempts: attempt + 1,
+            retryable: false,
+            status: decision.status,
+            message: `Failed to retrieve ${context.operation} from NHTSA`,
+            cause: err,
+          });
         }
 
         const base = this.retryBaseDelayMs * 2 ** attempt;

@@ -1,4 +1,5 @@
 import { IngestionService } from './ingestion.service';
+import { IngestionFailedError } from '../errors';
 import {
   TransformedMake,
   TransformedVehicleType,
@@ -501,9 +502,7 @@ describe('IngestionService', () => {
       errors: ['Failure 1', 'Failure 2'],
     });
 
-    await expect(service.ingest()).rejects.toThrow(
-      'Ingestion failed: total=2 failed=2',
-    );
+    await expect(service.ingest()).rejects.toThrow(IngestionFailedError);
 
     expect(ingestionRepository.save).toHaveBeenCalledWith(finalResult);
   });
