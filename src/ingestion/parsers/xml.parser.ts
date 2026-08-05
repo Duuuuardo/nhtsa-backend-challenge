@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { XMLParser as FastXmlParser, XMLValidator } from 'fast-xml-parser';
-
-export class XmlParseError extends Error {}
+import { XmlParseError } from '../errors';
 
 @Injectable()
 export class XmlParser {
