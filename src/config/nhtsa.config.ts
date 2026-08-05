@@ -1,15 +1,13 @@
 import { registerAs } from '@nestjs/config';
 
-const nhtsaConfig = registerAs('nhtsa', () => ({
+export default registerAs('nhtsa', () => ({
   allMakesUrl:
     process.env.NHTSA_ALL_MAKES_URL ??
     'https://vpic.nhtsa.dot.gov/api/vehicles/getallmakes?format=xml',
   vehicleTypesBaseUrl:
     process.env.NHTSA_VEHICLE_TYPES_BASE_URL ??
     'https://vpic.nhtsa.dot.gov/api/vehicles/GetVehicleTypesForMakeId/{makeId}?format=xml',
-  timeoutMs: parseInt(process.env.HTTP_TIMEOUT_MS ?? '10000', 10),
-  ingestionConcurrency: parseInt(process.env.INGESTION_CONCURRENCY ?? '5', 10),
-  ingestOnStartup: process.env.INGEST_ON_STARTUP === 'true',
+  requestTimeoutMs: Number(process.env.NHTSA_REQUEST_TIMEOUT_MS ?? 30000),
+  maxRetries: Number(process.env.NHTSA_MAX_RETRIES ?? 3),
+  retryBaseDelayMs: Number(process.env.NHTSA_RETRY_BASE_DELAY_MS ?? 1000),
 }));
-
-export default nhtsaConfig;
