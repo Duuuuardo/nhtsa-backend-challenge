@@ -1,7 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { HttpService } from '@nestjs/axios';
-import { ConfigService } from '@nestjs/config';
 import { of, throwError } from 'rxjs';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
@@ -58,7 +57,16 @@ const VEHICLE_TYPES_441_XML = `<?xml version="1.0" encoding="utf-8"?>
 
 const INVALID_XML = `<Response><Count>1</Count><Message>Bad XML</Message>`;
 
-const graphQL = (app: INestApplication) => request(app.getHttpServer()).post('/graphql');
+type GraphQLError = { extensions?: { code?: string }; message?: string };
+type GraphQLResponse<TData = Record<string, unknown>> = {
+  data?: TData | null;
+  errors?: GraphQLError[];
+};
+
+// `app.getHttpServer()` is a Nest internal server object; cast explicitly for supertest.
+
+const graphQL = (app: INestApplication) =>
+  request(app.getHttpServer()).post('/graphql');
 
 const mockHttpService = {
   get: jest.fn(),
@@ -67,7 +75,6 @@ const mockHttpService = {
 describe('Ingestion E2E', () => {
   let app: INestApplication;
   let prisma: PrismaService;
-  let config: ConfigService;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -81,15 +88,15 @@ describe('Ingestion E2E', () => {
     await app.init();
 
     prisma = app.get(PrismaService);
-    config = app.get(ConfigService);
 
     await prisma.$connect();
   });
 
   beforeEach(async () => {
     mockHttpService.get.mockReset();
-    await prisma.vehicleType.deleteMany();
+    await prisma.makeVehicleType.deleteMany();
     await prisma.make.deleteMany();
+    await prisma.vehicleType.deleteMany();
   });
 
   afterAll(async () => {
@@ -116,8 +123,18 @@ describe('Ingestion E2E', () => {
       })
       .expect(200);
 
-    expect(ingestResponse.body.errors).toBeUndefined();
-    expect(ingestResponse.body.data.ingestNhtsaData).toEqual({
+    const ingestBody = ingestResponse.body as GraphQLResponse<{
+      ingestNhtsaData: {
+        makesProcessed: number;
+        persisted: number;
+        vehicleTypeFetchFailures: number;
+        persistenceFailures: number;
+        stoppedEarly: null;
+        stopReason: null;
+      };
+    }>;
+    expect(ingestBody.errors).toBeUndefined();
+    expect(ingestBody.data?.ingestNhtsaData).toEqual({
       makesProcessed: 2,
       persisted: 2,
       vehicleTypeFetchFailures: 0,
@@ -127,10 +144,27 @@ describe('Ingestion E2E', () => {
     });
 
     const listResponse = await graphQL(app)
-      .send({ query: `query { makes { makeId makeName vehicleTypes { typeId typeName } } }` })
+      .send({
+        query: `query { makes(first: 10) { totalCount pageInfo { hasNextPage endCursor } edges { cursor node { makeId makeName vehicleTypes { typeId typeName } } } } }`,
+      })
       .expect(200);
 
-    expect(listResponse.body.data.makes).toEqual([
+    const listBody = listResponse.body as GraphQLResponse<{
+      makes: {
+        totalCount: number;
+        pageInfo: { hasNextPage: boolean; endCursor?: string | null };
+        edges: Array<{
+          cursor: string;
+          node: {
+            makeId: number;
+            makeName: string;
+            vehicleTypes: Array<{ typeId: number; typeName: string }>;
+          };
+        }>;
+      };
+    }>;
+
+    expect(listBody.data?.makes.edges.map((e) => e.node)).toEqual([
       {
         makeId: 440,
         makeName: 'ASTON MARTIN',
@@ -147,10 +181,19 @@ describe('Ingestion E2E', () => {
     ]);
 
     const singleResponse = await graphQL(app)
-      .send({ query: `query { make(makeId: 441) { makeId makeName vehicleTypes { typeId typeName } } }` })
+      .send({
+        query: `query { make(makeId: 441) { makeId makeName vehicleTypes { typeId typeName } } }`,
+      })
       .expect(200);
 
-    expect(singleResponse.body.data.make).toEqual({
+    const singleBody = singleResponse.body as GraphQLResponse<{
+      make: {
+        makeId: number;
+        makeName: string;
+        vehicleTypes: Array<{ typeId: number; typeName: string }>;
+      };
+    }>;
+    expect(singleBody.data?.make).toEqual({
       makeId: 441,
       makeName: 'TESLA',
       vehicleTypes: [{ typeId: 3, typeName: 'Motorcycle' }],
@@ -166,7 +209,10 @@ describe('Ingestion E2E', () => {
         return of({ data: VEHICLE_TYPES_440_XML });
       }
       if (url.includes('GetVehicleTypesForMakeId/441')) {
-        return throwError(() => ({ response: { status: 500 }, message: 'Server error' }));
+        return throwError(() => ({
+          response: { status: 500 },
+          message: 'Server error',
+        }));
       }
       return of({ data: '' });
     });
@@ -177,8 +223,18 @@ describe('Ingestion E2E', () => {
       })
       .expect(200);
 
-    expect(ingestResponse.body.errors).toBeUndefined();
-    expect(ingestResponse.body.data.ingestNhtsaData).toEqual({
+    const ingestBody = ingestResponse.body as GraphQLResponse<{
+      ingestNhtsaData: {
+        makesProcessed: number;
+        persisted: number;
+        vehicleTypeFetchFailures: number;
+        persistenceFailures: number;
+        stoppedEarly: null;
+        stopReason: null;
+      };
+    }>;
+    expect(ingestBody.errors).toBeUndefined();
+    expect(ingestBody.data?.ingestNhtsaData).toEqual({
       makesProcessed: 2,
       persisted: 2,
       vehicleTypeFetchFailures: 1,
@@ -188,10 +244,19 @@ describe('Ingestion E2E', () => {
     });
 
     const listResponse = await graphQL(app)
-      .send({ query: `query { make(makeId: 441) { makeId makeName vehicleTypes { typeId typeName } } }` })
+      .send({
+        query: `query { make(makeId: 441) { makeId makeName vehicleTypes { typeId typeName } } }`,
+      })
       .expect(200);
 
-    expect(listResponse.body.data.make).toEqual({
+    const listBody = listResponse.body as GraphQLResponse<{
+      make: {
+        makeId: number;
+        makeName: string;
+        vehicleTypes: Array<{ typeId: number; typeName: string }>;
+      };
+    }>;
+    expect(listBody.data?.make).toEqual({
       makeId: 441,
       makeName: 'TESLA',
       vehicleTypes: [],
@@ -212,9 +277,13 @@ describe('Ingestion E2E', () => {
       })
       .expect(200);
 
-    expect(ingestResponse.body.data).toBeNull();
-    expect(ingestResponse.body.errors).toHaveLength(1);
-    expect(ingestResponse.body.errors[0].extensions.code).toBe('XML_PARSE_ERROR');
-    expect(ingestResponse.body.errors[0].message).toContain('An internal error occurred while processing ingestion.');
+    const ingestBody = ingestResponse.body as GraphQLResponse<null>;
+    expect(ingestBody.data).toBeNull();
+    expect(ingestBody.errors).toBeDefined();
+    expect(ingestBody.errors).toHaveLength(1);
+    expect(ingestBody.errors?.[0]?.extensions?.code).toBe('XML_PARSE_ERROR');
+    expect(ingestBody.errors?.[0].message).toContain(
+      'An internal error occurred while processing ingestion.',
+    );
   });
 });

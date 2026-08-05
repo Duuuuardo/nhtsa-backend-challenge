@@ -15,23 +15,32 @@ datasource db {
 }
 
 model Make {
-  makeId       Int           @id @map("make_id")
-  makeName     String        @map("make_name")
-  vehicleTypes VehicleType[]
-  createdAt    DateTime      @default(now()) @map("created_at")
-  updatedAt    DateTime      @updatedAt @map("updated_at")
+  makeId       Int               @id @map("make_id")
+  makeName     String            @map("make_name")
+  vehicleTypes MakeVehicleType[]
+  createdAt    DateTime          @default(now()) @map("created_at")
+  updatedAt    DateTime          @updatedAt @map("updated_at")
 
   @@map("makes")
 }
 
 model VehicleType {
-  makeId    Int      @map("make_id")
-  typeId    Int      @map("type_id")
-  typeName  String   @map("type_name")
-  make      Make     @relation(fields: [makeId], references: [makeId])
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  typeId    Int               @id @map("type_id")
+  typeName  String            @map("type_name")
+  makes     MakeVehicleType[]
+  createdAt DateTime          @default(now()) @map("created_at")
+  updatedAt DateTime          @updatedAt @map("updated_at")
+
+  @@map("vehicle_types")
+}
+
+model MakeVehicleType {
+  makeId      Int
+  typeId      Int
+  make        Make        @relation(fields: [makeId], references: [makeId])
+  vehicleType VehicleType @relation(fields: [typeId], references: [typeId])
+  createdAt   DateTime    @default(now()) @map("created_at")
 
   @@id([makeId, typeId])
-  @@map("vehicle_types")
+  @@map("make_vehicle_types")
 }

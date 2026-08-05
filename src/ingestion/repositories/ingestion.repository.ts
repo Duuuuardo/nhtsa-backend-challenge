@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { TransformedMakeWithVehicleTypes } from '../types/transformed.types';
 import { IngestionSaveSummary } from '../types/ingestion-summary.types';
@@ -44,23 +45,52 @@ export class IngestionRepository {
         })),
       );
 
+      const uniqueVehicleTypes = Array.from(
+        new Map(
+          vehicleTypesData.map((vt) => [
+            vt.typeId,
+            { typeId: vt.typeId, typeName: vt.typeName },
+          ]),
+        ).values(),
+      );
+
+      const makeVehicleTypeData = batch.flatMap((m) =>
+        m.vehicleTypes.map((vt) => ({
+          makeId: m.makeId,
+          typeId: vt.typeId,
+        })),
+      );
+
       const makeData = batch.map((m) => ({
         makeId: m.makeId,
         makeName: m.makeName,
       }));
 
       try {
-        const operations = [
+        const operations: Prisma.PrismaPromise<unknown>[] = [
           this.prisma.make.createMany({ data: makeData, skipDuplicates: true }),
-          this.prisma.vehicleType.deleteMany({
+          this.prisma.makeVehicleType.deleteMany({
             where: { makeId: { in: makeIds } },
           }),
         ];
 
-        if (vehicleTypesData.length > 0) {
+        for (const vehicleType of uniqueVehicleTypes) {
           operations.push(
-            this.prisma.vehicleType.createMany({
-              data: vehicleTypesData,
+            this.prisma.vehicleType.upsert({
+              where: { typeId: vehicleType.typeId },
+              update: { typeName: vehicleType.typeName },
+              create: {
+                typeId: vehicleType.typeId,
+                typeName: vehicleType.typeName,
+              },
+            }),
+          );
+        }
+
+        if (makeVehicleTypeData.length > 0) {
+          operations.push(
+            this.prisma.makeVehicleType.createMany({
+              data: makeVehicleTypeData,
               skipDuplicates: true,
             }),
           );

@@ -12,8 +12,11 @@ describe('IngestionRepository', () => {
       createMany: jest.fn().mockReturnValue('op:createMany-makes'),
     },
     vehicleType: {
-      deleteMany: jest.fn().mockReturnValue('op:deleteMany-vehicleTypes'),
-      createMany: jest.fn().mockReturnValue('op:createMany-vehicleTypes'),
+      upsert: jest.fn().mockReturnValue('op:upsert-vehicleType'),
+    },
+    makeVehicleType: {
+      deleteMany: jest.fn().mockReturnValue('op:deleteMany-makeVehicleType'),
+      createMany: jest.fn().mockReturnValue('op:createMany-makeVehicleType'),
     },
   };
 
@@ -74,15 +77,18 @@ describe('IngestionRepository', () => {
 
     expect(prisma.$transaction).toHaveBeenCalledTimes(3);
     expect(prisma.make.createMany).toHaveBeenCalledTimes(3);
-    expect(prisma.vehicleType.deleteMany).toHaveBeenCalledTimes(3);
-    expect(prisma.vehicleType.createMany).toHaveBeenCalledTimes(3);
+    expect(prisma.makeVehicleType.deleteMany).toHaveBeenCalledTimes(3);
+    expect(prisma.vehicleType.upsert).toHaveBeenCalledTimes(5);
+    expect(prisma.makeVehicleType.createMany).toHaveBeenCalledTimes(3);
 
     expect(prisma.$transaction).toHaveBeenNthCalledWith(
       1,
       [
         'op:createMany-makes',
-        'op:deleteMany-vehicleTypes',
-        'op:createMany-vehicleTypes',
+        'op:deleteMany-makeVehicleType',
+        'op:upsert-vehicleType',
+        'op:upsert-vehicleType',
+        'op:createMany-makeVehicleType',
       ],
       { timeout: timeoutMs },
     );
@@ -107,7 +113,7 @@ describe('IngestionRepository', () => {
       skipDuplicates: true,
     });
 
-    expect(prisma.vehicleType.deleteMany).toHaveBeenCalledWith({
+    expect(prisma.makeVehicleType.deleteMany).toHaveBeenCalledWith({
       where: {
         makeId: {
           in: [440],
@@ -115,10 +121,25 @@ describe('IngestionRepository', () => {
       },
     });
 
-    expect(prisma.vehicleType.createMany).toHaveBeenCalledWith({
+    expect(prisma.vehicleType.upsert).toHaveBeenCalledTimes(2);
+    expect(prisma.vehicleType.upsert).toHaveBeenNthCalledWith(1, {
+      where: { typeId: 2 },
+      update: { typeName: 'Passenger Car' },
+      create: { typeId: 2, typeName: 'Passenger Car' },
+    });
+    expect(prisma.vehicleType.upsert).toHaveBeenNthCalledWith(2, {
+      where: { typeId: 7 },
+      update: { typeName: 'Multipurpose Passenger Vehicle' },
+      create: {
+        typeId: 7,
+        typeName: 'Multipurpose Passenger Vehicle',
+      },
+    });
+
+    expect(prisma.makeVehicleType.createMany).toHaveBeenCalledWith({
       data: [
-        { makeId: 440, typeId: 2, typeName: 'Passenger Car' },
-        { makeId: 440, typeId: 7, typeName: 'Multipurpose Passenger Vehicle' },
+        { makeId: 440, typeId: 2 },
+        { makeId: 440, typeId: 7 },
       ],
       skipDuplicates: true,
     });
@@ -127,8 +148,10 @@ describe('IngestionRepository', () => {
     const transactionCalls = prisma.$transaction.mock.calls as unknown[][];
     expect(transactionCalls[0][0]).toEqual([
       'op:createMany-makes',
-      'op:deleteMany-vehicleTypes',
-      'op:createMany-vehicleTypes',
+      'op:deleteMany-makeVehicleType',
+      'op:upsert-vehicleType',
+      'op:upsert-vehicleType',
+      'op:createMany-makeVehicleType',
     ]);
   });
 
@@ -148,7 +171,7 @@ describe('IngestionRepository', () => {
       skipDuplicates: true,
     });
 
-    expect(prisma.vehicleType.deleteMany).toHaveBeenCalledWith({
+    expect(prisma.makeVehicleType.deleteMany).toHaveBeenCalledWith({
       where: {
         makeId: {
           in: [440],
@@ -156,12 +179,13 @@ describe('IngestionRepository', () => {
       },
     });
 
-    expect(prisma.vehicleType.createMany).not.toHaveBeenCalled();
+    expect(prisma.vehicleType.upsert).not.toHaveBeenCalled();
+    expect(prisma.makeVehicleType.createMany).not.toHaveBeenCalled();
 
     const transactionCalls = prisma.$transaction.mock.calls as unknown[][];
     expect(transactionCalls[0][0]).toEqual([
       'op:createMany-makes',
-      'op:deleteMany-vehicleTypes',
+      'op:deleteMany-makeVehicleType',
     ]);
   });
 
