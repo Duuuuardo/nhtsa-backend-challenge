@@ -1,7 +1,10 @@
 .env
+.env.test
+
 node_modules
 dist
 
 /src/generated/prisma
 src/schema.gql
 *.tsbuildinfo
+coverage
