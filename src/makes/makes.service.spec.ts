@@ -1,4 +1,3 @@
-import { PrismaService } from '../database/prisma.service';
 import { MakesService } from './makes.service';
 
 describe('MakesService', () => {
@@ -29,7 +28,9 @@ describe('MakesService', () => {
   });
 
   it('returns the array returned by prisma.make.findMany', async () => {
-    const result = [{ makeId: 440, makeName: 'ASTON MARTIN', vehicleTypes: [] }];
+    const result = [
+      { makeId: 440, makeName: 'ASTON MARTIN', vehicleTypes: [] },
+    ];
 
     prisma.make.findMany.mockResolvedValue(result);
 

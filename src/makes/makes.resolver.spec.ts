@@ -1,5 +1,4 @@
 import { MakesResolver } from './makes.resolver';
-import { MakesService } from './makes.service';
 
 describe('MakesResolver', () => {
   let resolver: MakesResolver;
@@ -16,7 +15,9 @@ describe('MakesResolver', () => {
   });
 
   it('calls makesService.findAll and returns its result', async () => {
-    const result = [{ makeId: 440, makeName: 'ASTON MARTIN', vehicleTypes: [] }];
+    const result = [
+      { makeId: 440, makeName: 'ASTON MARTIN', vehicleTypes: [] },
+    ];
 
     makesService.findAll.mockResolvedValue(result);
 

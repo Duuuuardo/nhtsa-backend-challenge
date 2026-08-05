@@ -1,5 +1,4 @@
 import { IngestionResolver } from './ingestion.resolver';
-import { IngestionService } from './services/ingestion.service';
 
 describe('IngestionResolver', () => {
   let resolver: IngestionResolver;
