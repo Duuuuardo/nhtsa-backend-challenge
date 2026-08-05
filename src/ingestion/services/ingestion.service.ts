@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  OnApplicationBootstrap,
-  Logger,
-  InternalServerErrorException,
-} from '@nestjs/common';
+import { Injectable, OnApplicationBootstrap, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import pLimit from 'p-limit';
 
@@ -19,6 +14,11 @@ import {
 } from '../types/nhtsa-response.types';
 import { TransformedVehicleType } from '../types/transformed.types';
 import { IngestionResult } from '../types/ingestion-result.types';
+import {
+  IngestionFailedError,
+  NhtsaRequestError,
+  XmlParseError,
+} from '../errors';
 
 @Injectable()
 export class IngestionService implements OnApplicationBootstrap {
@@ -118,12 +118,24 @@ export class IngestionService implements OnApplicationBootstrap {
             const vehicleTypes = await this.fetchVehicleTypes(make.makeId);
 
             vehicleTypesByMake.set(make.makeId, vehicleTypes);
-          } catch {
+          } catch (err: unknown) {
             vehicleTypeFetchFailures += 1;
-            this.logger.warn({
+
+            const errorPayload = {
               event: 'ingestion.vehicleTypeFetch.failure',
               makeId: make.makeId,
-            });
+              error: err instanceof Error ? err.message : String(err),
+            };
+
+            if (
+              err instanceof XmlParseError ||
+              err instanceof NhtsaRequestError
+            ) {
+              this.logger.warn(errorPayload);
+            } else {
+              this.logger.error(errorPayload);
+            }
+
             vehicleTypesByMake.set(make.makeId, []);
           } finally {
             if (this.requestDelayMs > 0) {
@@ -172,9 +184,7 @@ export class IngestionService implements OnApplicationBootstrap {
         failed: persistenceFailures,
       });
 
-      throw new InternalServerErrorException(
-        `Ingestion failed: total=${total} failed=${persistenceFailures}`,
-      );
+      throw new IngestionFailedError({ total, failed: persistenceFailures });
     }
 
     const ingestionResult: IngestionResult = {

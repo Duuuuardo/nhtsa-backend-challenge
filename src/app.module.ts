@@ -41,7 +41,8 @@ import { LoggerModule } from 'nestjs-pino';
                 : undefined,
             redact: ['req.headers.authorization', 'req.headers.cookie'],
             autoLogging: {
-              ignore: (req: IncomingMessage): boolean => req.url?.startsWith('/graphql') ?? false,
+              ignore: (req: IncomingMessage): boolean =>
+                req.url?.startsWith('/graphql') ?? false,
             },
           },
         };

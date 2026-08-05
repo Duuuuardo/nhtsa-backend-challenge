@@ -1,7 +1,9 @@
-import { BadGatewayException } from '@nestjs/common';
 import { of, throwError } from 'rxjs';
 
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+
 import { NhtsaClient } from './nhtsa.client';
+import { NhtsaRequestError } from '../errors';
 
 describe('NhtsaClient', () => {
   let client: NhtsaClient;
@@ -85,9 +87,52 @@ describe('NhtsaClient', () => {
 
     httpService.get.mockReturnValue(throwError(() => networkError));
 
-    await expect(client.getAllMakesXml()).rejects.toBeInstanceOf(
-      BadGatewayException,
-    );
+    const requestPromise = client.getAllMakesXml();
+
+    await expect(requestPromise).rejects.toBeInstanceOf(NhtsaRequestError);
+
+    await expect(requestPromise).rejects.toMatchObject({
+      status: undefined,
+      attempts: expect.any(Number),
+      retryable: expect.any(Boolean),
+    });
+  });
+
+  it('should set status when API responds with HTTP error', async () => {
+    const httpError: unknown = {
+      response: { status: 500, headers: {} },
+      message: 'Server error',
+    };
+
+    // Recreate client with zero retries to avoid long backoff in test
+    const shortRetryConfig = {
+      getOrThrow: jest.fn<string | number, [string]>((key: string) => {
+        const config: Record<string, string | number> = {
+          'nhtsa.allMakesUrl': 'https://example.com/all-makes',
+          'nhtsa.vehicleTypesBaseUrl':
+            'https://example.com/makes/{makeId}/types',
+          'nhtsa.requestTimeoutMs': 30000,
+          'nhtsa.maxRetries': 0,
+          'nhtsa.retryBaseDelayMs': 1,
+        };
+
+        return config[key];
+      }),
+    };
+
+    client = new NhtsaClient(httpService as never, shortRetryConfig as never);
+
+    httpService.get.mockReturnValue(throwError(() => httpError));
+
+    const requestPromise = client.getAllMakesXml();
+
+    await expect(requestPromise).rejects.toBeInstanceOf(NhtsaRequestError);
+
+    await expect(requestPromise).rejects.toMatchObject({
+      status: expect.any(Number),
+      attempts: expect.any(Number),
+      retryable: expect.any(Boolean),
+    });
   });
 
   it('should throw when the API returns an empty response', async () => {
@@ -98,7 +143,7 @@ describe('NhtsaClient', () => {
     );
 
     await expect(client.getAllMakesXml()).rejects.toBeInstanceOf(
-      BadGatewayException,
+      NhtsaRequestError,
     );
   });
 });
