@@ -4,7 +4,7 @@ describe('MakesResolver', () => {
   let resolver: MakesResolver;
 
   const makesService = {
-    findAll: jest.fn(),
+    findAllPaginated: jest.fn(),
     findOne: jest.fn(),
   };
 
@@ -19,10 +19,10 @@ describe('MakesResolver', () => {
       { makeId: 440, makeName: 'ASTON MARTIN', vehicleTypes: [] },
     ];
 
-    makesService.findAll.mockResolvedValue(result);
+    makesService.findAllPaginated.mockResolvedValue(result as any);
 
-    await expect(resolver.findAll()).resolves.toBe(result);
-    expect(makesService.findAll).toHaveBeenCalledTimes(1);
+    await expect(resolver.findAll(25)).resolves.toBe(result);
+    expect(makesService.findAllPaginated).toHaveBeenCalledTimes(1);
   });
 
   it('calls makesService.findOne with the supplied makeId', async () => {
