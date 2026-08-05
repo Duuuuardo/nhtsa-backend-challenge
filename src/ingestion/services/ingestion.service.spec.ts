@@ -179,7 +179,12 @@ describe('IngestionService', () => {
 
     const result = await service.ingest();
 
-    expect(result).toEqual(finalResult);
+    expect(result).toEqual({
+      makesProcessed: 2,
+      persisted: 2,
+      persistenceFailures: 0,
+      vehicleTypeFetchFailures: 0,
+    });
 
     expect(nhtsaClient.getAllMakesXml).toHaveBeenCalledTimes(1);
 
@@ -233,7 +238,12 @@ describe('IngestionService', () => {
 
     const result = await service.ingest();
 
-    expect(result).toEqual([]);
+    expect(result).toEqual({
+      makesProcessed: 0,
+      persisted: 0,
+      persistenceFailures: 0,
+      vehicleTypeFetchFailures: 0,
+    });
 
     expect(nhtsaClient.getAllMakesXml).toHaveBeenCalledTimes(1);
 
@@ -350,7 +360,14 @@ describe('IngestionService', () => {
 
     const result = await service.ingest();
 
-    expect(result).toEqual(finalResult);
+    expect(result).toEqual({
+      makesProcessed: 2,
+      persisted: 2,
+      persistenceFailures: 0,
+      vehicleTypeFetchFailures: 1,
+    });
+
+    expect(result.vehicleTypeFetchFailures).toBe(1);
 
     expect(nhtsaClient.getVehicleTypesXml).toHaveBeenCalledWith(440);
 
@@ -414,15 +431,35 @@ describe('IngestionService', () => {
   });
 
   it('should reject when save summary indicates all failures', async () => {
-    const makesXml = '<xml>no makes</xml>';
+    const makesXml = '<xml>makes data</xml>';
+    const vehicleTypesXml = '<xml>vehicle types</xml>';
 
     const parsedMakes = {
+      Response: {
+        Count: 2,
+        Message: 'Success',
+        Results: {},
+      },
+    };
+
+    const parsedVehicleTypes = {
       Response: {
         Count: 0,
         Message: 'Success',
         Results: {},
       },
     };
+
+    const makes = [
+      {
+        makeId: 1,
+        makeName: 'TEST MAKE',
+      },
+      {
+        makeId: 2,
+        makeName: 'OTHER MAKE',
+      },
+    ];
 
     const finalResult = [
       {
@@ -438,8 +475,22 @@ describe('IngestionService', () => {
     ];
 
     nhtsaClient.getAllMakesXml.mockResolvedValue(makesXml);
-    xmlParser.parse.mockReturnValue(parsedMakes);
-    makeTransformer.transform.mockReturnValue([]);
+    nhtsaClient.getVehicleTypesXml.mockResolvedValue(vehicleTypesXml);
+
+    xmlParser.parse.mockImplementation((xml: string) => {
+      if (xml === makesXml) {
+        return parsedMakes;
+      }
+
+      if (xml === vehicleTypesXml) {
+        return parsedVehicleTypes;
+      }
+
+      throw new Error('Unexpected XML');
+    });
+
+    makeTransformer.transform.mockReturnValue(makes);
+    vehicleTypeTransformer.transform.mockReturnValue([]);
     ingestionTransformer.merge.mockReturnValue(finalResult);
 
     ingestionRepository.save.mockResolvedValue({
@@ -457,15 +508,35 @@ describe('IngestionService', () => {
   });
 
   it('should return result when save summary indicates partial success', async () => {
-    const makesXml = '<xml>no makes</xml>';
+    const makesXml = '<xml>makes data</xml>';
+    const vehicleTypesXml = '<xml>vehicle types</xml>';
 
     const parsedMakes = {
+      Response: {
+        Count: 2,
+        Message: 'Success',
+        Results: {},
+      },
+    };
+
+    const parsedVehicleTypes = {
       Response: {
         Count: 0,
         Message: 'Success',
         Results: {},
       },
     };
+
+    const makes = [
+      {
+        makeId: 1,
+        makeName: 'TEST MAKE',
+      },
+      {
+        makeId: 2,
+        makeName: 'OTHER MAKE',
+      },
+    ];
 
     const finalResult = [
       {
@@ -481,8 +552,22 @@ describe('IngestionService', () => {
     ];
 
     nhtsaClient.getAllMakesXml.mockResolvedValue(makesXml);
-    xmlParser.parse.mockReturnValue(parsedMakes);
-    makeTransformer.transform.mockReturnValue([]);
+    nhtsaClient.getVehicleTypesXml.mockResolvedValue(vehicleTypesXml);
+
+    xmlParser.parse.mockImplementation((xml: string) => {
+      if (xml === makesXml) {
+        return parsedMakes;
+      }
+
+      if (xml === vehicleTypesXml) {
+        return parsedVehicleTypes;
+      }
+
+      throw new Error('Unexpected XML');
+    });
+
+    makeTransformer.transform.mockReturnValue(makes);
+    vehicleTypeTransformer.transform.mockReturnValue([]);
     ingestionTransformer.merge.mockReturnValue(finalResult);
 
     ingestionRepository.save.mockResolvedValue({
@@ -492,9 +577,16 @@ describe('IngestionService', () => {
       errors: ['Failure 1'],
     });
 
+    const expected = {
+      makesProcessed: 2,
+      vehicleTypeFetchFailures: 0,
+      persisted: 1,
+      persistenceFailures: 1,
+    };
+
     const result = await service.ingest();
 
-    expect(result).toEqual(finalResult);
+    expect(result).toEqual(expected);
     expect(ingestionRepository.save).toHaveBeenCalledWith(finalResult);
   });
 
@@ -523,22 +615,29 @@ describe('IngestionService', () => {
       errors: [],
     });
 
+    const expected = {
+      makesProcessed: 0,
+      vehicleTypeFetchFailures: 0,
+      persisted: 0,
+      persistenceFailures: 0,
+    };
+
     const result = await service.ingest();
 
-    expect(result).toEqual(finalResult);
+    expect(result).toEqual(expected);
     expect(ingestionRepository.save).toHaveBeenCalledWith(finalResult);
   });
 
   it('should limit the number of makes when maxMakes is configured', async () => {
-    const limitedConfig: Record<string, number> = {
+    const limitedConfig: Record<string, number | boolean> = {
       'ingestion.concurrency': 2,
-      'ingestion.batchSize': 25,
       'ingestion.requestDelayMs': 0,
       'ingestion.maxMakes': 1,
+      'ingestion.ingestOnStartup': false,
     };
 
     configService.getOrThrow.mockImplementation(
-      (key: string): number => limitedConfig[key],
+      (key: string) => limitedConfig[key],
     );
 
     service = new IngestionService(
@@ -622,7 +721,7 @@ describe('IngestionService', () => {
 
     const result = await service.ingest();
 
-    expect(result).toEqual(finalResult);
+    expect(result.makesProcessed).toBe(1);
 
     expect(nhtsaClient.getVehicleTypesXml).toHaveBeenCalledTimes(1);
 

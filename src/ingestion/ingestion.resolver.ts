@@ -1,18 +1,18 @@
 import { Mutation, Resolver } from '@nestjs/graphql';
 
-import { Make } from '../makes/entities/make.entity';
+import { IngestionResult } from './entities/ingestion-result.entity';
 import { IngestionService } from './services/ingestion.service';
 
 @Resolver()
 export class IngestionResolver {
   constructor(private readonly ingestionService: IngestionService) {}
 
-  @Mutation(() => [Make], {
+  @Mutation(() => IngestionResult, {
     name: 'ingestNhtsaData',
     description:
-      'Fetches NHTSA XML data, transforms it and persists the result.',
+      "Reports what was ingested from NHTSA. The actual data can be queried via the 'makes' query.",
   })
-  ingestNhtsaData(): Promise<Make[]> {
+  ingestNhtsaData(): Promise<IngestionResult> {
     return this.ingestionService.ingest();
   }
 }
