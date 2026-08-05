@@ -1,98 +1,293 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# NHTSA Vehicle Ingestion Service
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Consumes public NHTSA data (vehicle makes and types) in XML, transforms it to JSON, stores it in Postgres, and serves it over GraphQL.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## What it does
 
-## Description
+Pulls raw XML from NHTSA, cleans it up, transforms it into a proper structure, and dumps it into the database. Then you query everything through GraphQL.
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+The pipeline:
+- The flow begins with a raw XML fetch from NHTSA, which is parsed and normalized into usable JavaScript objects.
+- Makes are merged with vehicle types, then the combined records are flushed to Postgres in batches via Prisma.
+- Once the data is persisted, GraphQL exposes it for queries.
 
-## Project setup
+## Running locally
+
+### With Docker (easiest)
 
 ```bash
-$ npm install
+cp .env.example .env
+docker compose up --build
 ```
 
-## Compile and run the project
+This spins up Postgres, applies migrations automatically via a dedicated `migrate` service, and then starts the app.
+
+### Without Docker
+
+If you prefer to run it manually:
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+npm install
+npm run prisma:migrate:dev
+npm run start:dev
 ```
 
-## Run tests
+You'll need Node and a local Postgres instance running.
+
+### Running E2E tests locally
+
+Copy the example test env file and start the test database:
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+cp .env.test.example .env.test
+npm run test:e2e:db:up
 ```
 
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+Then prepare the schema and run the suite:
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+npm run test:e2e:ci
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+The `NODE_OPTIONS=--experimental-vm-modules` flag is required because the Prisma client engine uses dynamic `import()` for its WASM query compiler, which Jest's sandbox can't execute without this flag.
 
-## Resources
+If you want to use a dedicated test database, set `DATABASE_URL` in `.env.test` to point to it.
 
-Check out a few resources that may come in handy when working with NestJS:
+## Environment variables
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+Everything is validated in `env.validation.ts` via Joi. Full list:
 
-## Support
+| Variable | Default | Description |
+|---|---|---|
+| `NODE_ENV` | `development` | `development` / `test` / `production` |
+| `PORT` | `3000` | HTTP port |
+| `DATABASE_URL` | **required** | Postgres connection string |
+| `LOG_LEVEL` | `info` | Pino level (`trace` through `fatal`) |
+| `NHTSA_ALL_MAKES_URL` | Public NHTSA URL | All-makes endpoint |
+| `NHTSA_VEHICLE_TYPES_BASE_URL` | **required** | Base endpoint per `makeId` |
+| `NHTSA_REQUEST_TIMEOUT_MS` | `30000` | Request timeout |
+| `NHTSA_MAX_RETRIES` | `3` | Retry attempts |
+| `NHTSA_RETRY_BASE_DELAY_MS` | `1000` | Exponential backoff base |
+| `NHTSA_BREAKER_FAILURE_THRESHOLD` | `5` | Failures before opening the circuit breaker |
+| `NHTSA_BREAKER_RESET_MS` | `30000` | Time until half-open attempt |
+| `INGESTION_CONCURRENCY` | `2` | Parallel requests |
+| `INGESTION_BATCH_SIZE` | `25` | Database batch size |
+| `INGESTION_REQUEST_DELAY_MS` | `500` | Delay between requests |
+| `INGESTION_MAX_MAKES` | `0` (unlimited) | Cap for testing |
+| `INGESTION_TRANSACTION_TIMEOUT_MS` | `10000` | Prisma transaction timeout |
+| `INGEST_ON_STARTUP` | `false` | Run ingestion on startup |
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+## Configuration approach
 
-## Stay in touch
+Configuration is loaded with `@nestjs/config` from domain-specific modules for `app`, `nhtsa`, `database`, and `ingestion`. The environment is validated at startup via Joi in `env.validation.ts`, and any validation failure prevents the app from booting.
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+## Migrations
 
-## License
+This project keeps its migration history intact instead of squashing it.
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+- `initial_schema` - initial schema with `Make` and a denormalized `VehicleType` model.
+- `split_vehicle_types` - normalization of the vehicle type catalog into `VehicleType` plus a join table `MakeVehicleType`.
+
+The split was introduced to avoid duplication of `typeName` across makes and to model vehicle types as a shared catalog.
+
+## Build
+
+```bash
+npm run build
+npm run start:prod
+```
+
+## Data model
+
+From `prisma/schema.prisma`:
+
+```prisma
+model Make {
+  makeId       Int               @id @map("make_id")
+  makeName     String            @map("make_name")
+  vehicleTypes MakeVehicleType[]
+  createdAt    DateTime          @default(now()) @map("created_at")
+  updatedAt    DateTime          @updatedAt @map("updated_at")
+
+  @@map("makes")
+}
+
+model VehicleType {
+  typeId    Int               @id @map("type_id")
+  typeName  String            @map("type_name")
+  makes     MakeVehicleType[]
+  createdAt DateTime          @default(now()) @map("created_at")
+  updatedAt DateTime          @updatedAt @map("updated_at")
+
+  @@map("vehicle_types")
+}
+
+model MakeVehicleType {
+  makeId      Int
+  typeId      Int
+  make        Make        @relation(fields: [makeId], references: [makeId])
+  vehicleType VehicleType @relation(fields: [typeId], references: [typeId])
+  createdAt   DateTime    @default(now()) @map("created_at")
+
+  @@id([makeId, typeId])
+  @@map("make_vehicle_types")
+}
+```
+
+- **Make** - PK is `makeId`
+- **VehicleType** - PK is `typeId`, representing the normalized vehicle type catalog
+- **MakeVehicleType** - join table linking makes to types; composite PK `[makeId, typeId]`
+- **Reason** - the normalization avoids duplication of `typeName` across makes by storing vehicle types once and associating them through a join table.
+
+## GraphQL schema
+
+```graphql
+type Make {
+  makeId: Int!
+  makeName: String!
+  vehicleTypes: [VehicleType!]!
+}
+
+type VehicleType {
+  typeId: Int!
+  typeName: String!
+}
+
+type IngestionResult {
+  makesProcessed: Int!
+  persisted: Int!
+  vehicleTypeFetchFailures: Int!
+  persistenceFailures: Int!
+  stoppedEarly: Boolean
+  stopReason: String
+}
+
+type Query {
+  makes(first: Int, after: String): MakeConnection!
+  make(makeId: Int!): Make
+}
+
+type Mutation {
+  ingestNhtsaData: IngestionResult!
+}
+
+type PageInfo {
+  hasNextPage: Boolean!
+  endCursor: String
+}
+
+type MakeEdge {
+  cursor: String!
+
+  # The cursor is base64(makeId); the server decodes it as UTF-8 and uses the resulting makeId.
+  node: Make!
+}
+
+type MakeConnection {
+  edges: [MakeEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+```
+
+## Query examples
+
+### Paginated list of makes
+
+```graphql
+query {
+  makes(first: 10) {
+    totalCount
+    pageInfo { hasNextPage endCursor }
+    edges {
+      cursor
+      node { makeId makeName vehicleTypes { typeId typeName } }
+    }
+  }
+}
+```
+
+The current cursor is generated as `base64(String(makeId))`. It is only used for pagination order and is not signed.
+
+To fetch the next page, pass the `endCursor` from the previous response:
+
+```graphql
+query {
+  makes(first: 10, after: "<endCursor from previous response>") {
+    totalCount
+    pageInfo { hasNextPage endCursor }
+    edges {
+      cursor
+      node { makeId makeName vehicleTypes { typeId typeName } }
+    }
+  }
+}
+```
+
+### Get a specific make
+
+```graphql
+query {
+  make(makeId: 440) {
+    makeId
+    makeName
+    vehicleTypes {
+      typeId
+      typeName
+    }
+  }
+}
+```
+
+### Trigger ingestion manually
+
+```graphql
+mutation {
+  ingestNhtsaData {
+    makesProcessed
+    persisted
+    stoppedEarly
+    stopReason
+  }
+}
+```
+
+## Ingestion pipeline
+
+The pipeline starts by pulling XML from NHTSA, turning that XML into JSON, and normalizing the fields into a consistent shape. Makes are merged with their vehicle types, and the combined payload is written to Postgres in transactional batches. When the import completes, GraphQL serves the same data for queries.
+
+The ingestion process treats `typeId` as the canonical vehicle type key. If the NHTSA source later returns a different `typeName` for an existing `typeId`, the service logs `ingestion.vehicleType.conflict` and updates the stored value.
+
+### Resilience
+
+The service retries failed requests a few times with increasing delay, so transient issues do not derail the whole job. If failures persist, the circuit breaker pauses outgoing calls for a short recovery window. The traffic is also paced: only two requests are in flight at once, with a small wait between them.
+
+## Error handling
+
+Custom errors in `src/ingestion/errors/`:
+
+- `NhtsaRequestError` - request to NHTSA failed
+- `XmlParseError` - XML was malformed or couldn't be parsed
+- `IngestionFailedError` - general pipeline failure
+- `CircuitOpenError` - circuit breaker is open
+
+All caught by `IngestionExceptionFilter` and formatted cleanly for GraphQL.
+
+## Logging
+
+Pino with structured JSON. Events you'll see:
+
+- `ingestion.start` - started
+- `ingestion.chunk.processed` - processed a chunk
+- `ingestion.completed` - finished
+- `ingestion.partial` - completed partially
+- `ingestion.chunk.failure` - chunk failed
+- `ingestion.vehicleTypeFetch.failure` - failed fetching vehicle types
+- `ingestion.completelyFailed` - ingestion completely failed
+- `ingestion.stoppedEarly` - stopped early
+
+Control the level via `LOG_LEVEL`.
+
+## Config
+
+`@nestjs/config` + Joi in `env.validation.ts`. Defaults are all in the env table above.
