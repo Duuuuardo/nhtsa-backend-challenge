@@ -1,4 +1,5 @@
 import { IngestionTransformer } from './ingestion.transformer';
+import { TransformedVehicleType } from '../types/transformed.types';
 
 describe('IngestionTransformer', () => {
   let transformer: IngestionTransformer;
@@ -19,7 +20,7 @@ describe('IngestionTransformer', () => {
       },
     ];
 
-    const vehicleTypes = new Map([
+    const vehicleTypes = new Map<number, TransformedVehicleType[]>([
       [
         440,
         [
@@ -72,7 +73,7 @@ describe('IngestionTransformer', () => {
       },
     ];
 
-    const vehicleTypes = new Map();
+    const vehicleTypes = new Map<number, TransformedVehicleType[]>();
 
     expect(transformer.merge(makes, vehicleTypes)).toEqual([
       {
@@ -84,7 +85,9 @@ describe('IngestionTransformer', () => {
   });
 
   it('should return an empty array when no makes are provided', () => {
-    expect(transformer.merge([], new Map())).toEqual([]);
+    expect(
+      transformer.merge([], new Map<number, TransformedVehicleType[]>()),
+    ).toEqual([]);
   });
 
   it('should preserve the original order of makes', () => {
@@ -116,7 +119,7 @@ describe('IngestionTransformer', () => {
       },
     ];
 
-    transformer.merge(makes, new Map());
+    transformer.merge(makes, new Map<number, TransformedVehicleType[]>());
 
     expect(makes).toEqual([
       {

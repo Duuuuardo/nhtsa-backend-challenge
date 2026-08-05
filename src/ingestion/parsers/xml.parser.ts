@@ -1,8 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import {
-  XMLParser as FastXmlParser,
-  XMLValidator,
-} from 'fast-xml-parser';
+import { XMLParser as FastXmlParser, XMLValidator } from 'fast-xml-parser';
 
 @Injectable()
 export class XmlParser {
@@ -22,9 +19,7 @@ export class XmlParser {
     const validationResult = XMLValidator.validate(normalizedXml);
 
     if (validationResult !== true) {
-      throw new Error(
-        `Invalid XML: ${validationResult.err.msg}`,
-      );
+      throw new Error(`Invalid XML: ${validationResult.err.msg}`);
     }
 
     return this.parser.parse(normalizedXml) as T;

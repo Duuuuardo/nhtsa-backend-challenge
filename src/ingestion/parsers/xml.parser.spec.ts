@@ -1,7 +1,7 @@
 import {
   NhtsaAllMakesXmlResponse,
   NhtsaVehicleTypesXmlResponse,
-} from '../types/nhtsa-xml-response.types';
+} from '../types/nhtsa-response.types';
 import { XmlParser } from './xml.parser';
 
 describe('XmlParser', () => {
@@ -31,8 +31,7 @@ describe('XmlParser', () => {
       </Response>
     `;
 
-    const result =
-      parser.parse<NhtsaAllMakesXmlResponse>(xml);
+    const result = parser.parse<NhtsaAllMakesXmlResponse>(xml);
 
     expect(result.Response.Count).toBe(2);
     expect(result.Response.Results.AllVehicleMakes).toEqual([
@@ -67,21 +66,17 @@ describe('XmlParser', () => {
       </Response>
     `;
 
-    const result =
-      parser.parse<NhtsaVehicleTypesXmlResponse>(xml);
+    const result = parser.parse<NhtsaVehicleTypesXmlResponse>(xml);
 
     expect(result.Response.Count).toBe(2);
-    expect(
-      result.Response.Results.VehicleTypesForMakeIds,
-    ).toEqual([
+    expect(result.Response.Results.VehicleTypesForMakeIds).toEqual([
       {
         VehicleTypeId: 2,
         VehicleTypeName: 'Passenger Car',
       },
       {
         VehicleTypeId: 7,
-        VehicleTypeName:
-          'Multipurpose Passenger Vehicle',
+        VehicleTypeName: 'Multipurpose Passenger Vehicle',
       },
     ]);
   });
@@ -101,8 +96,7 @@ describe('XmlParser', () => {
       </Response>
     `;
 
-    const result =
-      parser.parse<NhtsaAllMakesXmlResponse>(xml);
+    const result = parser.parse<NhtsaAllMakesXmlResponse>(xml);
 
     expect(result.Response.Results.AllVehicleMakes).toEqual({
       Make_ID: 440,
@@ -120,19 +114,14 @@ describe('XmlParser', () => {
       </Response>
     `;
 
-    const result =
-      parser.parse<NhtsaAllMakesXmlResponse>(xml);
+    const result = parser.parse<NhtsaAllMakesXmlResponse>(xml);
 
     expect(result.Response.Count).toBe(0);
-    expect(
-      result.Response.Results.AllVehicleMakes,
-    ).toBeUndefined();
+    expect(result.Response.Results.AllVehicleMakes).toBeUndefined();
   });
 
   it('should throw when XML is empty', () => {
-    expect(() => parser.parse('   ')).toThrow(
-      'XML content cannot be empty',
-    );
+    expect(() => parser.parse('   ')).toThrow('XML content cannot be empty');
   });
 
   it('should throw when XML is invalid', () => {
@@ -142,8 +131,6 @@ describe('XmlParser', () => {
       </Response>
     `;
 
-    expect(() => parser.parse(invalidXml)).toThrow(
-      'Invalid XML',
-    );
+    expect(() => parser.parse(invalidXml)).toThrow('Invalid XML');
   });
 });

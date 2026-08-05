@@ -5,9 +5,7 @@ import { IngestionService } from './services/ingestion.service';
 
 @Resolver()
 export class IngestionResolver {
-  constructor(
-    private readonly ingestionService: IngestionService,
-  ) {}
+  constructor(private readonly ingestionService: IngestionService) {}
 
   @Mutation(() => [Make], {
     name: 'ingestNhtsaData',

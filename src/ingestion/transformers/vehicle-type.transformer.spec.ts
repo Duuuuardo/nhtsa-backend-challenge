@@ -22,8 +22,7 @@ describe('VehicleTypeTransformer', () => {
             },
             {
               VehicleTypeId: 7,
-              VehicleTypeName:
-                'Multipurpose Passenger Vehicle',
+              VehicleTypeName: 'Multipurpose Passenger Vehicle',
             },
           ],
         },
