@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import appConfig from './config/app.config';
 import nhtsaConfig from './config/nhtsa.config';
 import databaseConfig from './config/database.config';
@@ -9,8 +9,10 @@ import { PrismaModule } from './database/prisma.module';
 import { ApolloDriver } from '@nestjs/apollo';
 import { GraphQLModule } from '@nestjs/graphql';
 import { join } from 'path';
+import { IncomingMessage } from 'http';
 import { MakesModule } from './makes/makes.module';
 import { IngestionModule } from './ingestion/ingestion.module';
+import { LoggerModule } from 'nestjs-pino';
 
 @Module({
   imports: [
@@ -25,6 +27,26 @@ import { IngestionModule } from './ingestion/ingestion.module';
       },
     }),
     PrismaModule,
+    LoggerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => {
+        const level = config.get<string>('app.logLevel');
+        const environment = config.get<string>('app.environment');
+        return {
+          pinoHttp: {
+            level,
+            transport:
+              environment !== 'production'
+                ? { target: 'pino-pretty', options: { colorize: true } }
+                : undefined,
+            redact: ['req.headers.authorization', 'req.headers.cookie'],
+            autoLogging: {
+              ignore: (req: IncomingMessage): boolean => req.url?.startsWith('/graphql') ?? false,
+            },
+          },
+        };
+      },
+    }),
     GraphQLModule.forRoot({
       driver: ApolloDriver,
       autoSchemaFile: join(process.cwd(), 'src/schema.gql'),
