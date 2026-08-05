@@ -45,18 +45,16 @@ describe('NhtsaClient', () => {
       '<Response></Response>',
     );
 
-    const headersMatcher = expect.objectContaining({
-      Accept: 'application/xml,text/xml',
-      'User-Agent': 'nhtsa-backend-challenge/1.0',
-    });
-
     expect(httpService.get).toHaveBeenCalledWith(
       'https://example.com/all-makes',
-      expect.objectContaining({
+      {
         responseType: 'text',
         timeout: 30000,
-        headers: headersMatcher,
-      }),
+        headers: {
+          Accept: 'application/xml,text/xml',
+          'User-Agent': 'nhtsa-backend-challenge/1.0',
+        },
+      },
     );
   });
 
@@ -73,6 +71,11 @@ describe('NhtsaClient', () => {
       'https://example.com/makes/440/types',
       expect.objectContaining({
         timeout: 30000,
+        headers: {
+          Accept: 'application/xml,text/xml',
+          'User-Agent': 'nhtsa-backend-challenge/1.0',
+        },
+        responseType: 'text',
       }),
     );
   });
@@ -80,9 +83,7 @@ describe('NhtsaClient', () => {
   it('should throw when the API request fails', async () => {
     const networkError: unknown = new Error('Network error');
 
-    httpService.get.mockReturnValue(
-      throwError(() => networkError),
-    );
+    httpService.get.mockReturnValue(throwError(() => networkError));
 
     await expect(client.getAllMakesXml()).rejects.toBeInstanceOf(
       BadGatewayException,
