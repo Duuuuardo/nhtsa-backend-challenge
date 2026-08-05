@@ -17,7 +17,7 @@ import { IngestionExceptionFilter } from './filters/ingestion-exception.filter';
   imports: [
     PrismaModule,
     HttpModule.register({
-      timeout: 30_000,
+      timeout: 30000,
       maxRedirects: 3,
     }),
   ],
