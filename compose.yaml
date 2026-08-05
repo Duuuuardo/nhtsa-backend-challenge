@@ -16,6 +16,19 @@ services:
       start_period: 10s
       timeout: 5s
       retries: 5
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder     
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-nhtsa}
+    command: ["npx", "prisma", "migrate", "deploy", "--schema=./prisma/schema.prisma"]
+    depends_on:
+      postgres:
+        condition: service_healthy
   app:
     build:
       context: .
@@ -30,6 +43,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
 volumes:
   postgres_data:
