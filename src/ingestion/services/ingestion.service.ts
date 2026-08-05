@@ -12,7 +12,10 @@ import {
   NhtsaAllMakesXmlResponse,
   NhtsaVehicleTypesXmlResponse,
 } from '../types/nhtsa-response.types';
-import { TransformedVehicleType } from '../types/transformed.types';
+import {
+  TransformedMake,
+  TransformedVehicleType,
+} from '../types/transformed.types';
 import { IngestionResult } from '../types/ingestion-result.types';
 import {
   CircuitOpenError,
@@ -20,6 +23,15 @@ import {
   NhtsaRequestError,
   XmlParseError,
 } from '../errors';
+
+type ProcessChunkResult = {
+  makesProcessed: number;
+  vehicleTypeFetchFailures: number;
+  persisted: number;
+  persistenceFailures: number;
+  stoppedEarly: boolean;
+  stopReason?: 'circuitOpen';
+};
 
 @Injectable()
 export class IngestionService implements OnApplicationBootstrap {
@@ -89,14 +101,7 @@ export class IngestionService implements OnApplicationBootstrap {
 
   async ingest(): Promise<IngestionResult> {
     const allMakesXml = await this.nhtsaClient.getAllMakesXml();
-
-    const parsedMakes =
-      this.xmlParser.parse<NhtsaAllMakesXmlResponse>(allMakesXml);
-
-    const allMakes = this.makeTransformer.transform(parsedMakes);
-
-    const makes =
-      this.maxMakes > 0 ? allMakes.slice(0, this.maxMakes) : allMakes;
+    const makes = this.buildMakes(allMakesXml);
 
     this.logger.log({
       event: 'ingestion.start',
@@ -110,75 +115,24 @@ export class IngestionService implements OnApplicationBootstrap {
 
     for (let offset = 0; offset < makes.length; offset += this.batchSize) {
       const chunk = makes.slice(offset, offset + this.batchSize);
-      const vehicleTypesByMake = new Map<number, TransformedVehicleType[]>();
-      const limit = pLimit(this.concurrency);
 
-      const fetchTasks = chunk.map((make) =>
-        limit(async () => {
-          try {
-            const vehicleTypes = await this.fetchVehicleTypes(make.makeId);
+      const chunkResult = await this.processChunk(chunk, offset);
 
-            vehicleTypesByMake.set(make.makeId, vehicleTypes);
-          } catch (err: unknown) {
-            if (err instanceof CircuitOpenError) {
-              throw err;
-            }
-
-            vehicleTypeFetchFailures += 1;
-
-            const errorPayload = {
-              event: 'ingestion.vehicleTypeFetch.failure',
-              makeId: make.makeId,
-              error: err instanceof Error ? err.message : String(err),
-            };
-
-            if (
-              err instanceof XmlParseError ||
-              err instanceof NhtsaRequestError
-            ) {
-              this.logger.warn(errorPayload);
-            } else {
-              this.logger.error(errorPayload);
-            }
-
-            vehicleTypesByMake.set(make.makeId, []);
-          } finally {
-            if (this.requestDelayMs > 0) {
-              await this.sleep(this.requestDelayMs);
-            }
-          }
-        }),
-      );
-
-      try {
-        await Promise.all(fetchTasks);
-      } catch (err: unknown) {
-        if (err instanceof CircuitOpenError) {
-          this.logger.warn({
-            event: 'ingestion.stoppedEarly',
-            reason: err.message,
-            retryAfterMs: err.retryAfterMs,
-          });
-
-          return {
-            makesProcessed: offset,
-            vehicleTypeFetchFailures,
-            persisted,
-            persistenceFailures,
-            stoppedEarly: true,
-            stopReason: 'circuitOpen',
-          };
-        }
-
-        throw err;
+      if (chunkResult.stoppedEarly) {
+        return {
+          makesProcessed: chunkResult.makesProcessed,
+          vehicleTypeFetchFailures:
+            vehicleTypeFetchFailures + chunkResult.vehicleTypeFetchFailures,
+          persisted,
+          persistenceFailures,
+          stoppedEarly: true,
+          stopReason: chunkResult.stopReason,
+        };
       }
 
-      const result = this.ingestionTransformer.merge(chunk, vehicleTypesByMake);
-
-      const summary = await this.ingestionRepository.save(result);
-
-      persisted += summary.succeeded;
-      persistenceFailures += summary.failed;
+      vehicleTypeFetchFailures += chunkResult.vehicleTypeFetchFailures;
+      persisted += chunkResult.persisted;
+      persistenceFailures += chunkResult.persistenceFailures;
 
       const processed = offset + chunk.length;
       this.logger.debug({
@@ -190,15 +144,6 @@ export class IngestionService implements OnApplicationBootstrap {
         persistenceFailures,
         vehicleTypeFetchFailures,
       });
-
-      if (summary.failed > 0) {
-        this.logger.warn({
-          event: 'ingestion.chunk.failure',
-          chunkSize: chunk.length,
-          succeeded: summary.succeeded,
-          failed: summary.failed,
-        });
-      }
     }
 
     const total = persisted + persistenceFailures;
@@ -238,6 +183,104 @@ export class IngestionService implements OnApplicationBootstrap {
     });
 
     return ingestionResult;
+  }
+
+  private buildMakes(allMakesXml: string) {
+    const parsedMakes =
+      this.xmlParser.parse<NhtsaAllMakesXmlResponse>(allMakesXml);
+
+    const allMakes = this.makeTransformer.transform(parsedMakes);
+
+    return this.maxMakes > 0 ? allMakes.slice(0, this.maxMakes) : allMakes;
+  }
+
+  private async processChunk(
+    chunk: TransformedMake[],
+    offset: number,
+  ): Promise<ProcessChunkResult> {
+    const vehicleTypesByMake = new Map<number, TransformedVehicleType[]>();
+    const limit = pLimit(this.concurrency);
+    let vehicleTypeFetchFailures = 0;
+
+    const fetchTasks = chunk.map((make) =>
+      limit(async () => {
+        try {
+          const vehicleTypes = await this.fetchVehicleTypes(make.makeId);
+
+          vehicleTypesByMake.set(make.makeId, vehicleTypes);
+        } catch (err: unknown) {
+          if (err instanceof CircuitOpenError) {
+            throw err;
+          }
+
+          vehicleTypeFetchFailures += 1;
+
+          const errorPayload = {
+            event: 'ingestion.vehicleTypeFetch.failure',
+            makeId: make.makeId,
+            error: err instanceof Error ? err.message : String(err),
+          };
+
+          if (
+            err instanceof XmlParseError ||
+            err instanceof NhtsaRequestError
+          ) {
+            this.logger.warn(errorPayload);
+          } else {
+            this.logger.error(errorPayload);
+          }
+
+          vehicleTypesByMake.set(make.makeId, []);
+        } finally {
+          if (this.requestDelayMs > 0) {
+            await this.sleep(this.requestDelayMs);
+          }
+        }
+      }),
+    );
+
+    try {
+      await Promise.all(fetchTasks);
+    } catch (err: unknown) {
+      if (err instanceof CircuitOpenError) {
+        this.logger.warn({
+          event: 'ingestion.stoppedEarly',
+          reason: err.message,
+          retryAfterMs: err.retryAfterMs,
+        });
+
+        return {
+          makesProcessed: offset,
+          vehicleTypeFetchFailures,
+          persisted: 0,
+          persistenceFailures: 0,
+          stoppedEarly: true,
+          stopReason: 'circuitOpen',
+        };
+      }
+
+      throw err;
+    }
+
+    const result = this.ingestionTransformer.merge(chunk, vehicleTypesByMake);
+    const summary = await this.ingestionRepository.save(result);
+
+    if (summary.failed > 0) {
+      this.logger.warn({
+        event: 'ingestion.chunk.failure',
+        chunkSize: chunk.length,
+        succeeded: summary.succeeded,
+        failed: summary.failed,
+      });
+    }
+
+    return {
+      makesProcessed: offset + chunk.length,
+      vehicleTypeFetchFailures,
+      persisted: summary.succeeded,
+      persistenceFailures: summary.failed,
+      stoppedEarly: false,
+    };
   }
 
   private async fetchVehicleTypes(

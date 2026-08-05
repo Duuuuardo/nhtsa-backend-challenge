@@ -104,10 +104,12 @@ export class NhtsaClient {
     return this.withRetry<string>(attemptFetch, { url, operation });
   }
 
-  private async withRetry<T>(
-    fn: () => Promise<T>,
-    context: { url: string; operation: string },
-  ): Promise<T> {
+  private shouldRetry(err: unknown): {
+    ok: boolean;
+    delayMs?: number;
+    status?: number;
+  } {
+    const axiosErr = err as AxiosError;
     const transientCodes = new Set([
       'ECONNRESET',
       'ETIMEDOUT',
@@ -115,38 +117,50 @@ export class NhtsaClient {
       'ENOTFOUND',
       'ECONNABORTED',
     ]);
+    const status = axiosErr.response?.status;
 
-    const shouldRetry = (
-      err: unknown,
-    ): { ok: boolean; delayMs?: number; status?: number } => {
-      const axiosErr = err as AxiosError;
-      const status = axiosErr.response?.status;
+    if (axiosErr.code && transientCodes.has(axiosErr.code)) {
+      return { ok: true };
+    }
 
-      if (axiosErr.code && transientCodes.has(axiosErr.code)) {
-        return { ok: true };
-      }
-
-      if (status) {
-        if (status === 429) {
-          const headers = axiosErr.response?.headers as
-            Record<string, string | undefined> | undefined;
-          const retryAfter = headers?.['retry-after'];
-          if (retryAfter) {
-            const seconds = Number(retryAfter);
-            if (!Number.isNaN(seconds))
-              return { ok: true, delayMs: seconds * 1000, status };
-          }
-          return { ok: true, status };
+    if (status) {
+      if (status === 429) {
+        const headers = axiosErr.response?.headers as
+          Record<string, string | undefined> | undefined;
+        const retryAfter = headers?.['retry-after'];
+        if (retryAfter) {
+          const seconds = Number(retryAfter);
+          if (!Number.isNaN(seconds))
+            return { ok: true, delayMs: seconds * 1000, status };
         }
-
-        if (status >= 500 && status < 600) return { ok: true, status };
-
-        return { ok: false, status };
+        return { ok: true, status };
       }
 
-      return { ok: false };
-    };
+      if (status >= 500 && status < 600) return { ok: true, status };
 
+      return { ok: false, status };
+    }
+
+    return { ok: false };
+  }
+
+  private computeBackoffDelay(
+    attempt: number,
+    decision: { ok: boolean; delayMs?: number; status?: number },
+  ): number {
+    if (decision.delayMs !== undefined) {
+      return decision.delayMs;
+    }
+
+    const base = this.retryBaseDelayMs * 2 ** attempt;
+    const jitterFactor = 0.5 + Math.random();
+    return Math.round(base * jitterFactor);
+  }
+
+  private async withRetry<T>(
+    fn: () => Promise<T>,
+    context: { url: string; operation: string },
+  ): Promise<T> {
     let attempt = 0;
     const max = this.maxRetries;
 
@@ -168,7 +182,7 @@ export class NhtsaClient {
 
         return result;
       } catch (err: unknown) {
-        const decision = shouldRetry(err);
+        const decision = this.shouldRetry(err);
 
         if (!decision.ok || attempt >= max) {
           this.circuitBreaker.recordFailure();
@@ -194,10 +208,7 @@ export class NhtsaClient {
           });
         }
 
-        const base = this.retryBaseDelayMs * 2 ** attempt;
-        const jitterFactor = 0.5 + Math.random();
-        const computed = Math.round(base * jitterFactor);
-        const delayMs = decision.delayMs ?? computed;
+        const delayMs = this.computeBackoffDelay(attempt, decision);
 
         this.logger.warn({
           message: 'Retrying NHTSA request',
