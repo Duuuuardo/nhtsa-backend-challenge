@@ -17,16 +17,15 @@ import {
   NhtsaAllMakesXmlResponse,
   NhtsaVehicleTypesXmlResponse,
 } from '../types/nhtsa-response.types';
-import {
-  TransformedMakeWithVehicleTypes,
-  TransformedVehicleType,
-} from '../types/transformed.types';
+import { TransformedVehicleType } from '../types/transformed.types';
+import { IngestionResult } from '../types/ingestion-result.types';
 
 @Injectable()
 export class IngestionService implements OnApplicationBootstrap {
   private readonly concurrency: number;
   private readonly requestDelayMs: number;
   private readonly maxMakes: number;
+  private readonly batchSize: number;
   private readonly ingestOnStartup: boolean;
   private readonly logger = new Logger(IngestionService.name);
 
@@ -49,6 +48,10 @@ export class IngestionService implements OnApplicationBootstrap {
 
     this.maxMakes = this.configService.getOrThrow<number>('ingestion.maxMakes');
 
+    this.batchSize = this.configService.getOrThrow<number>(
+      'ingestion.batchSize',
+    );
+
     this.ingestOnStartup = this.configService.getOrThrow<boolean>(
       'ingestion.ingestOnStartup',
     );
@@ -59,16 +62,31 @@ export class IngestionService implements OnApplicationBootstrap {
       return;
     }
 
-    this.logger.log('Automatic ingestion started (INGEST_ON_STARTUP=true)');
+    this.logger.log({
+      event: 'ingestion.automatic.start',
+      ingestOnStartup: true,
+    });
 
     this.ingest()
       .then((res) =>
-        this.logger.log(`Automatic ingestion finished: ${res.length} makes`),
+        this.logger.log({
+          event: 'ingestion.automatic.completed',
+          makesProcessed: res.makesProcessed,
+          persisted: res.persisted,
+          persistenceFailures: res.persistenceFailures,
+        }),
       )
-      .catch((err) => this.logger.error(`Automatic ingestion failed: ${err}`));
+      .catch((err: unknown) => {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+
+        this.logger.error({
+          event: 'ingestion.automatic.failed',
+          error: errorMessage,
+        });
+      });
   }
 
-  async ingest(): Promise<TransformedMakeWithVehicleTypes[]> {
+  async ingest(): Promise<IngestionResult> {
     const allMakesXml = await this.nhtsaClient.getAllMakesXml();
 
     const parsedMakes =
@@ -79,54 +97,111 @@ export class IngestionService implements OnApplicationBootstrap {
     const makes =
       this.maxMakes > 0 ? allMakes.slice(0, this.maxMakes) : allMakes;
 
-    const vehicleTypesByMake = new Map<number, TransformedVehicleType[]>();
+    this.logger.log({
+      event: 'ingestion.start',
+      makesToProcess: makes.length,
+      batchSize: this.batchSize,
+    });
 
-    const limit = pLimit(this.concurrency);
+    let vehicleTypeFetchFailures = 0;
+    let persisted = 0;
+    let persistenceFailures = 0;
 
-    const fetchTasks = makes.map((make) =>
-      limit(async () => {
-        try {
-          const vehicleTypes = await this.fetchVehicleTypes(make.makeId);
+    for (let offset = 0; offset < makes.length; offset += this.batchSize) {
+      const chunk = makes.slice(offset, offset + this.batchSize);
+      const vehicleTypesByMake = new Map<number, TransformedVehicleType[]>();
+      const limit = pLimit(this.concurrency);
 
-          vehicleTypesByMake.set(make.makeId, vehicleTypes);
-        } catch {
-          vehicleTypesByMake.set(make.makeId, []);
-        } finally {
-          if (this.requestDelayMs > 0) {
-            await this.sleep(this.requestDelayMs);
+      const fetchTasks = chunk.map((make) =>
+        limit(async () => {
+          try {
+            const vehicleTypes = await this.fetchVehicleTypes(make.makeId);
+
+            vehicleTypesByMake.set(make.makeId, vehicleTypes);
+          } catch {
+            vehicleTypeFetchFailures += 1;
+            this.logger.warn({
+              event: 'ingestion.vehicleTypeFetch.failure',
+              makeId: make.makeId,
+            });
+            vehicleTypesByMake.set(make.makeId, []);
+          } finally {
+            if (this.requestDelayMs > 0) {
+              await this.sleep(this.requestDelayMs);
+            }
           }
-        }
-      }),
-    );
-
-    await Promise.all(fetchTasks);
-
-    const result = this.ingestionTransformer.merge(makes, vehicleTypesByMake);
-
-    const summary = await this.ingestionRepository.save(result);
-
-    if (summary.succeeded === 0 && summary.total > 0) {
-      this.logger.error(
-        `Ingestion completely failed: total=${summary.total} failed=${summary.failed}`,
+        }),
       );
+
+      await Promise.all(fetchTasks);
+
+      const result = this.ingestionTransformer.merge(chunk, vehicleTypesByMake);
+
+      const summary = await this.ingestionRepository.save(result);
+
+      persisted += summary.succeeded;
+      persistenceFailures += summary.failed;
+
+      const processed = offset + chunk.length;
+      this.logger.debug({
+        event: 'ingestion.chunk.processed',
+        processed,
+        total: makes.length,
+        chunkSize: chunk.length,
+        persisted,
+        persistenceFailures,
+        vehicleTypeFetchFailures,
+      });
+
+      if (summary.failed > 0) {
+        this.logger.warn({
+          event: 'ingestion.chunk.failure',
+          chunkSize: chunk.length,
+          succeeded: summary.succeeded,
+          failed: summary.failed,
+        });
+      }
+    }
+
+    const total = persisted + persistenceFailures;
+
+    if (persisted === 0 && total > 0) {
+      this.logger.error({
+        event: 'ingestion.completelyFailed',
+        total,
+        failed: persistenceFailures,
+      });
 
       throw new InternalServerErrorException(
-        `Ingestion failed: total=${summary.total} failed=${summary.failed}`,
+        `Ingestion failed: total=${total} failed=${persistenceFailures}`,
       );
     }
 
-    if (summary.failed > 0) {
-      this.logger.warn(
-        `Partial ingestion: total=${summary.total} succeeded=${summary.succeeded} failed=${summary.failed}`,
-      );
-      return result;
+    const ingestionResult: IngestionResult = {
+      makesProcessed: makes.length,
+      vehicleTypeFetchFailures,
+      persisted,
+      persistenceFailures,
+    };
+
+    if (persistenceFailures > 0) {
+      this.logger.warn({
+        event: 'ingestion.partial',
+        total,
+        succeeded: persisted,
+        failed: persistenceFailures,
+      });
+      return ingestionResult;
     }
 
-    this.logger.log(
-      `Ingestion finished: total=${summary.total} succeeded=${summary.succeeded} failed=${summary.failed}`,
-    );
+    this.logger.log({
+      event: 'ingestion.completed',
+      total,
+      succeeded: persisted,
+      failed: persistenceFailures,
+    });
 
-    return result;
+    return ingestionResult;
   }
 
   private async fetchVehicleTypes(
