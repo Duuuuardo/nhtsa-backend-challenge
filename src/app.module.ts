@@ -19,6 +19,7 @@ import { LoggerModule } from 'nestjs-pino';
     ConfigModule.forRoot({
       isGlobal: true,
       cache: true,
+      envFilePath: ['.env.test', '.env'],
       load: [appConfig, nhtsaConfig, databaseConfig, ingestionConfig],
       validationSchema: envValidationSchema,
       validationOptions: {
