@@ -28,7 +28,7 @@ export class VehicleTypeTransformer {
   ): TransformedVehicleType {
     return {
       typeId: item.VehicleTypeId,
-      typeName: item.VehicleTypeName.trim(),
+      typeName: String(item.VehicleTypeName).trim(),
     };
   }
 

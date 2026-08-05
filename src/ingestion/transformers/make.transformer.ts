@@ -22,7 +22,7 @@ export class MakeTransformer {
   private transformItem(item: NhtsaAllMakesItem): TransformedMake {
     return {
       makeId: item.Make_ID,
-      makeName: item.Make_Name.trim(),
+      makeName: String(item.Make_Name).trim(),
     };
   }
 

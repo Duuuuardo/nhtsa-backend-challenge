@@ -8,7 +8,7 @@ export interface NhtsaResponseMetadata {
 
 export interface NhtsaAllMakesItem {
   Make_ID: number;
-  Make_Name: string;
+  Make_Name: string | number;
 }
 
 export interface NhtsaAllMakesXmlResponse {
@@ -21,7 +21,7 @@ export interface NhtsaAllMakesXmlResponse {
 
 export interface NhtsaVehicleTypeItem {
   VehicleTypeId: number;
-  VehicleTypeName: string;
+  VehicleTypeName: string | number;
 }
 
 export interface NhtsaVehicleTypesXmlResponse {

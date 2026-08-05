@@ -9,6 +9,7 @@ import { ApolloDriver } from '@nestjs/apollo';
 import { GraphQLModule } from '@nestjs/graphql';
 import { join } from 'path';
 import { MakesModule } from './makes/makes.module';
+import { IngestionModule } from './ingestion/ingestion.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { MakesModule } from './makes/makes.module';
       playground: true,
     }),
     MakesModule,
+    IngestionModule,
   ],
 })
 export class AppModule {}
