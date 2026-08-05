@@ -42,6 +42,7 @@ jobs:
           --health-retries 5
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nhtsa_test
+      NHTSA_VEHICLE_TYPES_BASE_URL: https://vpic.nhtsa.dot.gov/api/vehicles/GetVehicleTypesForMakeId/{makeId}?format=xml
       NODE_ENV: test
     steps:
       - uses: actions/checkout@v4
