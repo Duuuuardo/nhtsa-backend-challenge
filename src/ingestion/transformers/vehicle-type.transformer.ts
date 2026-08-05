@@ -9,23 +9,17 @@ import { TransformedVehicleType } from '../types/transformed.types';
 
 @Injectable()
 export class VehicleTypeTransformer {
-  transform(
-    response: NhtsaVehicleTypesXmlResponse,
-  ): TransformedVehicleType[] {
+  transform(response: NhtsaVehicleTypesXmlResponse): TransformedVehicleType[] {
     const items = response.Response.Results.VehicleTypesForMakeIds;
 
     if (!items) {
       return [];
     }
 
-    return this.toArray(items).map((item) =>
-      this.transformItem(item),
-    );
+    return this.toArray(items).map((item) => this.transformItem(item));
   }
 
-  private transformItem(
-    item: NhtsaVehicleTypeItem,
-  ): TransformedVehicleType {
+  private transformItem(item: NhtsaVehicleTypeItem): TransformedVehicleType {
     return {
       typeId: item.VehicleTypeId,
       typeName: String(item.VehicleTypeName).trim(),

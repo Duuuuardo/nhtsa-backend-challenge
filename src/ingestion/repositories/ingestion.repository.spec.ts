@@ -1,201 +1,138 @@
+import { IngestionSaveSummary } from '../types/ingestion-summary.types';
 import { IngestionRepository } from './ingestion.repository';
 
 describe('IngestionRepository', () => {
   let repository: IngestionRepository;
-
-  const transactionClient = {
-    make: {
-      upsert: jest.fn(),
-    },
-    vehicleType: {
-      deleteMany: jest.fn(),
-      createMany: jest.fn(),
-    },
-  };
+  const batchSize = 2;
+  const timeoutMs = 123;
 
   const prisma = {
     $transaction: jest.fn(),
+    make: {
+      createMany: jest.fn().mockReturnValue('op:createMany-makes'),
+    },
+    vehicleType: {
+      deleteMany: jest.fn().mockReturnValue('op:deleteMany-vehicleTypes'),
+      createMany: jest.fn().mockReturnValue('op:createMany-vehicleTypes'),
+    },
   };
+
+  const config = {
+    getOrThrow: jest.fn(),
+  };
+
+  const buildMake = (id: number) => ({
+    makeId: id,
+    makeName: `MAKE-${id}`,
+    vehicleTypes: [{ typeId: 100 + id, typeName: `Type-${id}` }],
+  });
 
   beforeEach(() => {
     jest.clearAllMocks();
 
-    prisma.$transaction.mockImplementation(
-      async (
-        callback: (
-          tx: typeof transactionClient,
-        ) => Promise<void>,
-      ) => callback(transactionClient),
-    );
+    prisma.$transaction.mockResolvedValue(undefined);
 
-    repository = new IngestionRepository(prisma as never);
+    config.getOrThrow.mockImplementation((key: string) => {
+      if (key === 'ingestion.batchSize') return batchSize;
+      if (key === 'ingestion.transactionTimeoutMs') return timeoutMs;
+      throw new Error(`Unexpected config key: ${key}`);
+    });
+
+    repository = new IngestionRepository(prisma as never, config as never);
   });
 
-  it('should upsert a make and replace its vehicle types', async () => {
+  it('should batch 5 makes into 3 transactions', async () => {
     const data = [
       {
         makeId: 440,
         makeName: 'ASTON MARTIN',
-        vehicleTypes: [
-          {
-            typeId: 2,
-            typeName: 'Passenger Car',
-          },
-          {
-            typeId: 7,
-            typeName: 'Multipurpose Passenger Vehicle',
-          },
-        ],
-      },
-    ];
-
-    await repository.save(data);
-
-    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-
-    expect(transactionClient.make.upsert).toHaveBeenCalledWith({
-      where: {
-        makeId: 440,
-      },
-      create: {
-        makeId: 440,
-        makeName: 'ASTON MARTIN',
-      },
-      update: {
-        makeName: 'ASTON MARTIN',
-      },
-    });
-
-    expect(
-      transactionClient.vehicleType.deleteMany,
-    ).toHaveBeenCalledWith({
-      where: {
-        makeId: 440,
-      },
-    });
-
-    expect(
-      transactionClient.vehicleType.createMany,
-    ).toHaveBeenCalledWith({
-      data: [
-        {
-          makeId: 440,
-          typeId: 2,
-          typeName: 'Passenger Car',
-        },
-        {
-          makeId: 440,
-          typeId: 7,
-          typeName: 'Multipurpose Passenger Vehicle',
-        },
-      ],
-      skipDuplicates: true,
-    });
-  });
-
-  it('should persist a make with no vehicle types', async () => {
-    const data = [
-      {
-        makeId: 440,
-        makeName: 'ASTON MARTIN',
-        vehicleTypes: [],
-      },
-    ];
-
-    await repository.save(data);
-
-    expect(transactionClient.make.upsert).toHaveBeenCalledWith({
-      where: {
-        makeId: 440,
-      },
-      create: {
-        makeId: 440,
-        makeName: 'ASTON MARTIN',
-      },
-      update: {
-        makeName: 'ASTON MARTIN',
-      },
-    });
-
-    expect(
-      transactionClient.vehicleType.deleteMany,
-    ).toHaveBeenCalledWith({
-      where: {
-        makeId: 440,
-      },
-    });
-
-    expect(
-      transactionClient.vehicleType.createMany,
-    ).not.toHaveBeenCalled();
-  });
-
-  it('should process multiple makes in separate transactions', async () => {
-    const data = [
-      {
-        makeId: 440,
-        makeName: 'ASTON MARTIN',
-        vehicleTypes: [
-          {
-            typeId: 2,
-            typeName: 'Passenger Car',
-          },
-        ],
+        vehicleTypes: [{ typeId: 2, typeName: 'Passenger Car' }],
       },
       {
         makeId: 441,
         makeName: 'TESLA',
+        vehicleTypes: [{ typeId: 3, typeName: 'Truck' }],
+      },
+      {
+        makeId: 442,
+        makeName: 'FORD',
+        vehicleTypes: [{ typeId: 4, typeName: 'SUV' }],
+      },
+      {
+        makeId: 443,
+        makeName: 'HONDA',
+        vehicleTypes: [{ typeId: 5, typeName: 'Motorcycle' }],
+      },
+      {
+        makeId: 444,
+        makeName: 'TOYOTA',
+        vehicleTypes: [{ typeId: 6, typeName: 'Pickup' }],
+      },
+    ];
+
+    await repository.save(data);
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(3);
+    expect(prisma.make.createMany).toHaveBeenCalledTimes(3);
+    expect(prisma.vehicleType.deleteMany).toHaveBeenCalledTimes(3);
+    expect(prisma.vehicleType.createMany).toHaveBeenCalledTimes(3);
+
+    expect(prisma.$transaction).toHaveBeenNthCalledWith(
+      1,
+      [
+        'op:createMany-makes',
+        'op:deleteMany-vehicleTypes',
+        'op:createMany-vehicleTypes',
+      ],
+      { timeout: timeoutMs },
+    );
+  });
+
+  it('should assemble operations in the correct order when vehicle types exist', async () => {
+    const data = [
+      {
+        makeId: 440,
+        makeName: 'ASTON MARTIN',
         vehicleTypes: [
-          {
-            typeId: 3,
-            typeName: 'Truck',
-          },
+          { typeId: 2, typeName: 'Passenger Car' },
+          { typeId: 7, typeName: 'Multipurpose Passenger Vehicle' },
         ],
       },
     ];
 
     await repository.save(data);
 
-    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    expect(prisma.make.createMany).toHaveBeenCalledWith({
+      data: [{ makeId: 440, makeName: 'ASTON MARTIN' }],
+      skipDuplicates: true,
+    });
 
-    expect(transactionClient.make.upsert).toHaveBeenNthCalledWith(
-      1,
-      {
-        where: {
-          makeId: 440,
-        },
-        create: {
-          makeId: 440,
-          makeName: 'ASTON MARTIN',
-        },
-        update: {
-          makeName: 'ASTON MARTIN',
+    expect(prisma.vehicleType.deleteMany).toHaveBeenCalledWith({
+      where: {
+        makeId: {
+          in: [440],
         },
       },
-    );
+    });
 
-    expect(transactionClient.make.upsert).toHaveBeenNthCalledWith(
-      2,
-      {
-        where: {
-          makeId: 441,
-        },
-        create: {
-          makeId: 441,
-          makeName: 'TESLA',
-        },
-        update: {
-          makeName: 'TESLA',
-        },
-      },
-    );
+    expect(prisma.vehicleType.createMany).toHaveBeenCalledWith({
+      data: [
+        { makeId: 440, typeId: 2, typeName: 'Passenger Car' },
+        { makeId: 440, typeId: 7, typeName: 'Multipurpose Passenger Vehicle' },
+      ],
+      skipDuplicates: true,
+    });
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    const transactionCalls = prisma.$transaction.mock.calls as unknown[][];
+    expect(transactionCalls[0][0]).toEqual([
+      'op:createMany-makes',
+      'op:deleteMany-vehicleTypes',
+      'op:createMany-vehicleTypes',
+    ]);
   });
 
-  it('should propagate transaction errors', async () => {
-    const error = new Error('Database transaction failed');
-
-    prisma.$transaction.mockRejectedValue(error);
-
+  it('should still delete types when a make has no vehicle types', async () => {
     const data = [
       {
         makeId: 440,
@@ -204,21 +141,104 @@ describe('IngestionRepository', () => {
       },
     ];
 
-    await expect(repository.save(data)).rejects.toThrow(
-      'Database transaction failed',
-    );
+    await repository.save(data);
+
+    expect(prisma.make.createMany).toHaveBeenCalledWith({
+      data: [{ makeId: 440, makeName: 'ASTON MARTIN' }],
+      skipDuplicates: true,
+    });
+
+    expect(prisma.vehicleType.deleteMany).toHaveBeenCalledWith({
+      where: {
+        makeId: {
+          in: [440],
+        },
+      },
+    });
+
+    expect(prisma.vehicleType.createMany).not.toHaveBeenCalled();
+
+    const transactionCalls = prisma.$transaction.mock.calls as unknown[][];
+    expect(transactionCalls[0][0]).toEqual([
+      'op:createMany-makes',
+      'op:deleteMany-vehicleTypes',
+    ]);
   });
 
-  it('should do nothing when the input is empty', async () => {
-    await repository.save([]);
+  it('should pass timeout from config to each transaction', async () => {
+    const data = [
+      {
+        makeId: 440,
+        makeName: 'ASTON MARTIN',
+        vehicleTypes: [{ typeId: 2, typeName: 'Passenger Car' }],
+      },
+      {
+        makeId: 441,
+        makeName: 'TESLA',
+        vehicleTypes: [{ typeId: 3, typeName: 'Truck' }],
+      },
+    ];
+
+    await repository.save(data);
+
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Array), {
+      timeout: timeoutMs,
+    });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('should return zero summary for empty data', async () => {
+    await expect(repository.save([])).resolves.toEqual({
+      total: 0,
+      succeeded: 0,
+      failed: 0,
+      errors: [],
+    });
 
     expect(prisma.$transaction).not.toHaveBeenCalled();
-    expect(transactionClient.make.upsert).not.toHaveBeenCalled();
-    expect(
-      transactionClient.vehicleType.deleteMany,
-    ).not.toHaveBeenCalled();
-    expect(
-      transactionClient.vehicleType.createMany,
-    ).not.toHaveBeenCalled();
+  });
+
+  it('should not propagate transaction failure and count batch failures atomically', async () => {
+    const data = [buildMake(440), buildMake(441), buildMake(442)];
+    prisma.$transaction.mockRejectedValueOnce(new Error('db down'));
+
+    const summary: IngestionSaveSummary = await repository.save(data);
+
+    expect(summary).toMatchObject({
+      total: 3,
+      succeeded: 1,
+      failed: 2,
+    });
+    expect(summary.errors).toHaveLength(1);
+    expect(summary.errors[0]).toContain('index 0');
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+  });
+
+  it('should return a success summary when all batches succeed', async () => {
+    const data = [buildMake(440), buildMake(441)];
+
+    const summary = await repository.save(data);
+
+    expect(summary).toEqual({
+      total: 2,
+      succeeded: 2,
+      failed: 0,
+      errors: [],
+    });
+  });
+
+  it('should cap stored errors while counting all failed records', async () => {
+    const data = Array.from({ length: 24 }, (_, index) =>
+      buildMake(440 + index),
+    );
+    prisma.$transaction.mockRejectedValue(new Error('db down'));
+
+    const summary = await repository.save(data);
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(12);
+    expect(summary.total).toBe(24);
+    expect(summary.succeeded).toBe(0);
+    expect(summary.failed).toBe(24);
+    expect(summary.errors).toHaveLength(10);
   });
 });

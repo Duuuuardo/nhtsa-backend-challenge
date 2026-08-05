@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import appConfig from './config/app.config';
 import nhtsaConfig from './config/nhtsa.config';
 import databaseConfig from './config/database.config';
+import ingestionConfig from './config/ingestion.config';
 import { envValidationSchema } from './config/env.validation';
 import { PrismaModule } from './database/prisma.module';
 import { ApolloDriver } from '@nestjs/apollo';
@@ -16,7 +17,7 @@ import { IngestionModule } from './ingestion/ingestion.module';
     ConfigModule.forRoot({
       isGlobal: true,
       cache: true,
-      load: [appConfig, nhtsaConfig, databaseConfig],
+      load: [appConfig, nhtsaConfig, databaseConfig, ingestionConfig],
       validationSchema: envValidationSchema,
       validationOptions: {
         abortEarly: false,

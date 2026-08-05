@@ -1,6 +1,4 @@
-import { HttpService } from '@nestjs/axios';
 import { BadGatewayException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { of, throwError } from 'rxjs';
 
 import { NhtsaClient } from './nhtsa.client';
@@ -9,14 +7,21 @@ describe('NhtsaClient', () => {
   let client: NhtsaClient;
 
   const httpService = {
-    get: jest.fn(),
+    get: jest.fn<unknown, [string, Record<string, unknown>]>(),
   };
 
   const configService = {
-    getOrThrow: jest.fn((key: string) => {
-      const config = {
+    getOrThrow: jest.fn<string | number, [string]>((key: string) => {
+      const config: Record<string, string | number> = {
         'nhtsa.allMakesUrl': 'https://example.com/all-makes',
+
         'nhtsa.vehicleTypesBaseUrl': 'https://example.com/makes/{makeId}/types',
+
+        'nhtsa.requestTimeoutMs': 30000,
+
+        'nhtsa.maxRetries': 3,
+
+        'nhtsa.retryBaseDelayMs': 1000,
       };
 
       return config[key];
@@ -26,10 +31,7 @@ describe('NhtsaClient', () => {
   beforeEach(() => {
     jest.clearAllMocks();
 
-    client = new NhtsaClient(
-      httpService as unknown as HttpService,
-      configService as unknown as ConfigService,
-    );
+    client = new NhtsaClient(httpService as never, configService as never);
   });
 
   it('should retrieve all makes XML', async () => {
@@ -45,9 +47,14 @@ describe('NhtsaClient', () => {
 
     expect(httpService.get).toHaveBeenCalledWith(
       'https://example.com/all-makes',
-      expect.objectContaining({
+      {
         responseType: 'text',
-      }),
+        timeout: 30000,
+        headers: {
+          Accept: 'application/xml,text/xml',
+          'User-Agent': 'nhtsa-backend-challenge/1.0',
+        },
+      },
     );
   });
 
@@ -62,14 +69,21 @@ describe('NhtsaClient', () => {
 
     expect(httpService.get).toHaveBeenCalledWith(
       'https://example.com/makes/440/types',
-      expect.any(Object),
+      expect.objectContaining({
+        timeout: 30000,
+        headers: {
+          Accept: 'application/xml,text/xml',
+          'User-Agent': 'nhtsa-backend-challenge/1.0',
+        },
+        responseType: 'text',
+      }),
     );
   });
 
   it('should throw when the API request fails', async () => {
-    httpService.get.mockReturnValue(
-      throwError(() => new Error('Network error')),
-    );
+    const networkError: unknown = new Error('Network error');
+
+    httpService.get.mockReturnValue(throwError(() => networkError));
 
     await expect(client.getAllMakesXml()).rejects.toBeInstanceOf(
       BadGatewayException,
