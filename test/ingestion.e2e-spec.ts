@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing';
 import { HttpService } from '@nestjs/axios';
 import { of, throwError } from 'rxjs';
 import request from 'supertest';
+import type { Server } from 'http';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/database/prisma.service';
 
@@ -65,8 +66,10 @@ type GraphQLResponse<TData = Record<string, unknown>> = {
 
 // `app.getHttpServer()` is a Nest internal server object; cast explicitly for supertest.
 
-const graphQL = (app: INestApplication) =>
-  request(app.getHttpServer()).post('/graphql');
+const graphQL = (app: INestApplication) => {
+  const httpServer = app.getHttpServer() as Server;
+  return request(httpServer).post('/graphql');
+};
 
 const mockHttpService = {
   get: jest.fn(),
