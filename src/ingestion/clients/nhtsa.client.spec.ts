@@ -3,7 +3,7 @@ import { of, throwError } from 'rxjs';
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 
 import { NhtsaClient } from './nhtsa.client';
-import { NhtsaRequestError } from '../errors';
+import { CircuitOpenError, NhtsaRequestError } from '../errors';
 
 describe('NhtsaClient', () => {
   let client: NhtsaClient;
@@ -24,6 +24,10 @@ describe('NhtsaClient', () => {
         'nhtsa.maxRetries': 3,
 
         'nhtsa.retryBaseDelayMs': 1000,
+
+        'nhtsa.breakerFailureThreshold': 5,
+
+        'nhtsa.breakerResetMs': 30000,
       };
 
       return config[key];
@@ -114,6 +118,8 @@ describe('NhtsaClient', () => {
           'nhtsa.requestTimeoutMs': 30000,
           'nhtsa.maxRetries': 0,
           'nhtsa.retryBaseDelayMs': 1,
+          'nhtsa.breakerFailureThreshold': 2,
+          'nhtsa.breakerResetMs': 1000,
         };
 
         return config[key];
@@ -145,5 +151,45 @@ describe('NhtsaClient', () => {
     await expect(client.getAllMakesXml()).rejects.toBeInstanceOf(
       NhtsaRequestError,
     );
+  });
+
+  it('opens the breaker after repeated failures and stops before calling HTTP again', async () => {
+    const shortRetryConfig = {
+      getOrThrow: jest.fn<string | number, [string]>((key: string) => {
+        const config: Record<string, string | number> = {
+          'nhtsa.allMakesUrl': 'https://example.com/all-makes',
+          'nhtsa.vehicleTypesBaseUrl':
+            'https://example.com/makes/{makeId}/types',
+          'nhtsa.requestTimeoutMs': 30000,
+          'nhtsa.maxRetries': 0,
+          'nhtsa.retryBaseDelayMs': 1,
+          'nhtsa.breakerFailureThreshold': 1,
+          'nhtsa.breakerResetMs': 1000,
+        };
+
+        return config[key];
+      }),
+    };
+
+    client = new NhtsaClient(httpService as never, shortRetryConfig as never);
+
+    const networkError: unknown = {
+      code: 'ECONNRESET',
+      message: 'Network error',
+    };
+
+    httpService.get.mockReturnValue(throwError(() => networkError));
+
+    await expect(client.getAllMakesXml()).rejects.toBeInstanceOf(
+      NhtsaRequestError,
+    );
+
+    httpService.get.mockClear();
+
+    await expect(client.getAllMakesXml()).rejects.toBeInstanceOf(
+      CircuitOpenError,
+    );
+
+    expect(httpService.get).not.toHaveBeenCalled();
   });
 });

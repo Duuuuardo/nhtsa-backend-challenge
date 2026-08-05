@@ -17,6 +17,8 @@ const envValidationSchema = Joi.object({
   NHTSA_REQUEST_TIMEOUT_MS: Joi.number().integer().positive().default(30000),
   NHTSA_MAX_RETRIES: Joi.number().integer().min(0).max(5).default(3),
   NHTSA_RETRY_BASE_DELAY_MS: Joi.number().integer().positive().default(1000),
+  NHTSA_BREAKER_FAILURE_THRESHOLD: Joi.number().integer().min(1).default(5),
+  NHTSA_BREAKER_RESET_MS: Joi.number().integer().min(1000).default(30000),
   INGESTION_CONCURRENCY: Joi.number().integer().min(1).max(10).default(2),
   INGESTION_BATCH_SIZE: Joi.number().integer().min(1).max(500).default(25),
   INGESTION_REQUEST_DELAY_MS: Joi.number().integer().min(0).default(500),

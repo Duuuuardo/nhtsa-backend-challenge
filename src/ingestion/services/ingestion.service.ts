@@ -15,6 +15,7 @@ import {
 import { TransformedVehicleType } from '../types/transformed.types';
 import { IngestionResult } from '../types/ingestion-result.types';
 import {
+  CircuitOpenError,
   IngestionFailedError,
   NhtsaRequestError,
   XmlParseError,
@@ -119,6 +120,10 @@ export class IngestionService implements OnApplicationBootstrap {
 
             vehicleTypesByMake.set(make.makeId, vehicleTypes);
           } catch (err: unknown) {
+            if (err instanceof CircuitOpenError) {
+              throw err;
+            }
+
             vehicleTypeFetchFailures += 1;
 
             const errorPayload = {
@@ -145,7 +150,28 @@ export class IngestionService implements OnApplicationBootstrap {
         }),
       );
 
-      await Promise.all(fetchTasks);
+      try {
+        await Promise.all(fetchTasks);
+      } catch (err: unknown) {
+        if (err instanceof CircuitOpenError) {
+          this.logger.warn({
+            event: 'ingestion.stoppedEarly',
+            reason: err.message,
+            retryAfterMs: err.retryAfterMs,
+          });
+
+          return {
+            makesProcessed: offset,
+            vehicleTypeFetchFailures,
+            persisted,
+            persistenceFailures,
+            stoppedEarly: true,
+            stopReason: 'circuitOpen',
+          };
+        }
+
+        throw err;
+      }
 
       const result = this.ingestionTransformer.merge(chunk, vehicleTypesByMake);
 

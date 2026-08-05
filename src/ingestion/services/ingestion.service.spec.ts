@@ -1,5 +1,5 @@
 import { IngestionService } from './ingestion.service';
-import { IngestionFailedError } from '../errors';
+import { CircuitOpenError, IngestionFailedError } from '../errors';
 import {
   TransformedMake,
   TransformedVehicleType,
@@ -48,12 +48,25 @@ describe('IngestionService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
 
+    nhtsaClient.getAllMakesXml.mockReset();
+    nhtsaClient.getVehicleTypesXml.mockReset();
+    xmlParser.parse.mockReset();
+    makeTransformer.transform.mockReset();
+    vehicleTypeTransformer.transform.mockReset();
+    ingestionTransformer.merge.mockReset();
+    ingestionRepository.save.mockReset();
+    configService.getOrThrow.mockReset();
+
     ingestionRepository.save.mockImplementation((makes: any[]) => ({
       total: Array.isArray(makes) ? makes.length : 0,
       succeeded: Array.isArray(makes) ? makes.length : 0,
       failed: 0,
       errors: [],
     }));
+
+    configService.getOrThrow.mockImplementation(
+      (key: string) => defaultConfig[key],
+    );
 
     service = new IngestionService(
       nhtsaClient as never,
@@ -395,6 +408,45 @@ describe('IngestionService', () => {
     expect(nhtsaClient.getVehicleTypesXml).not.toHaveBeenCalled();
 
     expect(ingestionTransformer.merge).not.toHaveBeenCalled();
+    expect(ingestionRepository.save).not.toHaveBeenCalled();
+  });
+
+  it('should stop early when the circuit breaker opens during vehicle type fetches', async () => {
+    const makesXml = '<xml>makes data</xml>';
+    const parsedMakes = {
+      Response: {
+        Count: 1,
+        Message: 'Success',
+        Results: {},
+      },
+    };
+
+    const makes = [
+      {
+        makeId: 440,
+        makeName: 'ASTON MARTIN',
+      },
+    ];
+
+    nhtsaClient.getAllMakesXml.mockResolvedValue(makesXml);
+    xmlParser.parse.mockReturnValue(parsedMakes);
+    makeTransformer.transform.mockReturnValue(makes);
+
+    nhtsaClient.getVehicleTypesXml.mockRejectedValue(
+      new CircuitOpenError(30000),
+    );
+
+    const result = await service.ingest();
+
+    expect(result).toEqual({
+      makesProcessed: 0,
+      vehicleTypeFetchFailures: 0,
+      persisted: 0,
+      persistenceFailures: 0,
+      stoppedEarly: true,
+      stopReason: 'circuitOpen',
+    });
+
     expect(ingestionRepository.save).not.toHaveBeenCalled();
   });
 

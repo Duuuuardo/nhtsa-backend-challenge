@@ -3,7 +3,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AxiosError } from 'axios';
 import { firstValueFrom } from 'rxjs';
-import { NhtsaRequestError } from '../errors';
+import { CircuitOpenError, NhtsaRequestError } from '../errors';
+import { CircuitBreaker } from './circuit-breaker';
 
 @Injectable()
 export class NhtsaClient {
@@ -14,6 +15,7 @@ export class NhtsaClient {
   private readonly requestTimeoutMs: number;
   private readonly maxRetries: number;
   private readonly retryBaseDelayMs: number;
+  private readonly circuitBreaker: CircuitBreaker;
 
   constructor(
     private readonly httpService: HttpService,
@@ -34,6 +36,19 @@ export class NhtsaClient {
 
     this.retryBaseDelayMs = this.configService.getOrThrow<number>(
       'nhtsa.retryBaseDelayMs',
+    );
+
+    const breakerFailureThreshold = this.configService.getOrThrow<number>(
+      'nhtsa.breakerFailureThreshold',
+    );
+
+    const breakerResetMs = this.configService.getOrThrow<number>(
+      'nhtsa.breakerResetMs',
+    );
+
+    this.circuitBreaker = new CircuitBreaker(
+      breakerFailureThreshold,
+      breakerResetMs,
     );
   }
 
@@ -72,6 +87,19 @@ export class NhtsaClient {
 
       return response.data;
     };
+
+    if (!this.circuitBreaker.canAttempt()) {
+      const retryAfterMs = this.circuitBreaker.retryAfterMs;
+
+      this.logger.warn({
+        message: 'NHTSA circuit breaker is open',
+        url,
+        operation,
+        retryAfterMs,
+      });
+
+      throw new CircuitOpenError(retryAfterMs);
+    }
 
     return this.withRetry<string>(attemptFetch, { url, operation });
   }
@@ -134,11 +162,17 @@ export class NhtsaClient {
           });
         }
 
-        return await fn();
+        const result = await fn();
+
+        this.circuitBreaker.recordSuccess();
+
+        return result;
       } catch (err: unknown) {
         const decision = shouldRetry(err);
 
         if (!decision.ok || attempt >= max) {
+          this.circuitBreaker.recordFailure();
+
           this.logger.error({
             message: 'NHTSA request failed (exhausted retries)',
             attempt,

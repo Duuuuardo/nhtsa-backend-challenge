@@ -21,6 +21,18 @@ export class IngestionResult {
     description: 'Number of persistence failures during ingestion',
   })
   persistenceFailures!: number;
+
+  @Field(() => Boolean, {
+    nullable: true,
+    description: 'Whether ingestion stopped early due to circuit breaker open',
+  })
+  stoppedEarly?: boolean;
+
+  @Field(() => String, {
+    nullable: true,
+    description: 'Reason ingestion stopped early',
+  })
+  stopReason?: 'circuitOpen';
 }
 
 export default IngestionResult;
