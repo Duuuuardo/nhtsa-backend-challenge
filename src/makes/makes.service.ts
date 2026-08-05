@@ -40,19 +40,14 @@ export class MakesService {
 
     let afterMakeId: number | undefined;
     if (after) {
-      try {
-        const decoded = Buffer.from(after, 'base64').toString('utf8');
-        const parsed = Number(decoded);
-        if (!Number.isNaN(parsed)) {
-          afterMakeId = parsed;
-        }
-      } catch {
-        // ignore invalid cursor and treat as no cursor
-        afterMakeId = undefined;
+      const decoded = Buffer.from(after, 'base64').toString('utf8');
+      const parsed = Number(decoded);
+      if (!Number.isNaN(parsed)) {
+        afterMakeId = parsed;
       }
     }
 
-    const [items, totalCount] = await Promise.all([
+    const [items, totalCount] = await this.prisma.$transaction([
       this.prisma.make.findMany({
         take: limit + 1,
         ...(afterMakeId !== undefined && {

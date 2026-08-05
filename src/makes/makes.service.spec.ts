@@ -9,6 +9,7 @@ describe('MakesService', () => {
       findUnique: jest.fn(),
       count: jest.fn(),
     },
+    $transaction: jest.fn(),
   };
 
   beforeEach(() => {
@@ -68,8 +69,7 @@ describe('MakesService', () => {
       { makeId: 3, makeName: 'C', vehicleTypes: [] },
     ];
 
-    prisma.make.findMany.mockResolvedValue(items);
-    prisma.make.count.mockResolvedValue(3);
+    prisma.$transaction.mockResolvedValue([items, 3]);
 
     const res = await service.findAllPaginated(2);
 
