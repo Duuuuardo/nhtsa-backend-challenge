@@ -54,6 +54,30 @@ export class IngestionRepository {
         ).values(),
       );
 
+      const existingVehicleTypes = await this.prisma.vehicleType.findMany({
+        where: { typeId: { in: uniqueVehicleTypes.map((vt) => vt.typeId) } },
+        select: { typeId: true, typeName: true },
+      });
+
+      const existingTypeNames = new Map(
+        existingVehicleTypes.map((vt) => [vt.typeId, vt.typeName]),
+      );
+
+      for (const vehicleType of uniqueVehicleTypes) {
+        const existingTypeName = existingTypeNames.get(vehicleType.typeId);
+        if (
+          existingTypeName !== undefined &&
+          existingTypeName !== vehicleType.typeName
+        ) {
+          this.logger.warn({
+            event: 'ingestion.vehicleType.conflict',
+            typeId: vehicleType.typeId,
+            existingTypeName,
+            incomingTypeName: vehicleType.typeName,
+          });
+        }
+      }
+
       const makeVehicleTypeData = batch.flatMap((m) =>
         m.vehicleTypes.map((vt) => ({
           makeId: m.makeId,

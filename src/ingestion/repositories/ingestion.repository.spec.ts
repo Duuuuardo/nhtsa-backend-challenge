@@ -12,6 +12,7 @@ describe('IngestionRepository', () => {
       createMany: jest.fn().mockReturnValue('op:createMany-makes'),
     },
     vehicleType: {
+      findMany: jest.fn().mockResolvedValue([]),
       upsert: jest.fn().mockReturnValue('op:upsert-vehicleType'),
     },
     makeVehicleType: {
