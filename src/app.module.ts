@@ -10,9 +10,12 @@ import { ApolloDriver } from '@nestjs/apollo';
 import { GraphQLModule } from '@nestjs/graphql';
 import { join } from 'path';
 import { IncomingMessage } from 'http';
+import { APP_FILTER } from '@nestjs/core';
 import { MakesModule } from './makes/makes.module';
 import { IngestionModule } from './ingestion/ingestion.module';
 import { LoggerModule } from 'nestjs-pino';
+import { IngestionExceptionFilter } from './ingestion/filters/ingestion-exception.filter';
+import { GraphQLFormattedError } from 'graphql';
 
 @Module({
   imports: [
@@ -49,14 +52,32 @@ import { LoggerModule } from 'nestjs-pino';
         };
       },
     }),
-    GraphQLModule.forRoot({
+    GraphQLModule.forRootAsync({
+      inject: [ConfigService],
       driver: ApolloDriver,
-      autoSchemaFile: join(process.cwd(), 'src/schema.gql'),
-      sortSchema: true,
-      playground: true,
+      useFactory: (configService: ConfigService) => ({
+        autoSchemaFile: join(process.cwd(), 'src/schema.gql'),
+        sortSchema: true,
+        playground:
+          configService.get<string>('app.environment') !== 'production',
+        includeStacktraceInErrorResponses: false,
+        formatError: (error: GraphQLFormattedError) => ({
+          message: error.message,
+          extensions: {
+            ...(error.extensions ?? {}),
+            code: error.extensions?.code ?? 'INTERNAL_SERVER_ERROR',
+          },
+        }),
+      }),
     }),
     MakesModule,
     IngestionModule,
+  ],
+  providers: [
+    {
+      provide: APP_FILTER,
+      useClass: IngestionExceptionFilter,
+    },
   ],
 })
 export class AppModule {}

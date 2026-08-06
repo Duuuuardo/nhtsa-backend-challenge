@@ -224,6 +224,8 @@ query {
 }
 ```
 
+**Cursor behavior:** passing an invalid cursor or a cursor that points to a non-existent `makeId` now throws an error with the message `Invalid pagination cursor.` instead of silently restarting pagination. This is enforced by the `decodeCursor` logic in `src/makes/makes.service.ts`.
+
 ### Get a specific make
 
 ```graphql
@@ -258,6 +260,22 @@ The pipeline starts by pulling XML from NHTSA, turning that XML into JSON, and n
 
 The ingestion process treats `typeId` as the canonical vehicle type key. If the NHTSA source later returns a different `typeName` for an existing `typeId`, the service logs `ingestion.vehicleType.conflict` and updates the stored value.
 
+### Intermediate transformation format
+
+`IngestionTransformer.merge()` (in `src/ingestion/transformers/ingestion.transformer.ts`) produces, per batch, an array in the exact shape the challenge expects:
+
+```ts
+{ makeId: number; makeName: string; vehicleTypes: { typeId: number; typeName: string }[] }[]
+```
+
+This array is **intermediate/ephemeral**. It only exists while each chunk is being processed, before it gets flattened into relational rows in Postgres (`Make`, `VehicleType`, and `MakeVehicleType`). The nested format is what the pipeline manipulates in memory, but it is never persisted as a single JSON document in the database.
+
+### Why `makes` doesn't return a flat array
+
+The `makes` query does not return a flat array directly because, with **12,314+ records** (and growing), serving everything at once without pagination would be a serious performance and scalability problem. It hits the server on memory allocation, serialization, and transfer, and it hits the client on rendering and bandwidth consumption.
+
+That's why the API adds a **Relay-style pagination layer** (`edges`/`node`/`pageInfo`) on top of the same data. The exposed consumer schema lets clients consume the catalog in controlled pages (`first`/`after`), while the database continues to store and relate the data in normalized form. The nested structure `{ makeId, makeName, vehicleTypes: [...] }` only reappears inside each `node`, now as a paginated, typed response.
+
 ### Resilience
 
 The service retries failed requests a few times with increasing delay, so transient issues do not derail the whole job. If failures persist, the circuit breaker pauses outgoing calls for a short recovery window. The traffic is also paced: only two requests are in flight at once, with a small wait between them.
@@ -271,7 +289,9 @@ Custom errors in `src/ingestion/errors/`:
 - `IngestionFailedError` - general pipeline failure
 - `CircuitOpenError` - circuit breaker is open
 
-All caught by `IngestionExceptionFilter` and formatted cleanly for GraphQL.
+The `IngestionExceptionFilter` is registered globally via `APP_FILTER` in `app.module.ts` (`@Catch(Error)`). It catches every unhandled error in the app, ingestion-related or not, and formats it cleanly for the GraphQL response.
+
+On top of that, the GraphQL module is configured with `includeStacktraceInErrorResponses: false` and a custom `formatError` handler in `app.module.ts` to strip internal details from client-facing messages. A global `ValidationPipe` is also mounted in `main.ts` to enforce DTO contracts at the edge.
 
 ## Logging
 
@@ -288,6 +308,6 @@ Pino with structured JSON. Events you'll see:
 
 Control the level via `LOG_LEVEL`.
 
-## Config
+## Architecture note
 
-`@nestjs/config` + Joi in `env.validation.ts`. Defaults are all in the env table above.
+Each module (`makes/`, `ingestion/`) is organized by feature, but internally it already separates concerns into resolver (presentation), service (domain), and repository / Prisma layer (infrastructure).

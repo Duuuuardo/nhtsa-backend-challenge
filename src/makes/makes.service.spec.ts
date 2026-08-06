@@ -79,4 +79,18 @@ describe('MakesService', () => {
     expect(res.pageInfo.hasNextPage).toBe(true);
     expect(res.pageInfo.endCursor).toBeDefined();
   });
+
+  it('throws when pagination cursor is invalid', async () => {
+    await expect(
+      service.findAllPaginated(2, 'not-a-valid-cursor'),
+    ).rejects.toThrow('Invalid pagination cursor.');
+  });
+
+  it('throws when pagination cursor points to a missing make', async () => {
+    prisma.make.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.findAllPaginated(2, Buffer.from('999').toString('base64')),
+    ).rejects.toThrow('Invalid pagination cursor.');
+  });
 });

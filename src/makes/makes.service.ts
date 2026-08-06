@@ -32,6 +32,17 @@ export class MakesService {
     };
   }
 
+  private decodeCursor(after: string): number {
+    const decoded = Buffer.from(after, 'base64').toString('utf8');
+    const parsed = Number(decoded);
+
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      throw new Error('Invalid pagination cursor.');
+    }
+
+    return parsed;
+  }
+
   async findAllPaginated(
     first: number,
     after?: string,
@@ -40,10 +51,15 @@ export class MakesService {
 
     let afterMakeId: number | undefined;
     if (after) {
-      const decoded = Buffer.from(after, 'base64').toString('utf8');
-      const parsed = Number(decoded);
-      if (!Number.isNaN(parsed)) {
-        afterMakeId = parsed;
+      afterMakeId = this.decodeCursor(after);
+
+      const existingMake = await this.prisma.make.findUnique({
+        where: { makeId: afterMakeId },
+        select: { makeId: true },
+      });
+
+      if (!existingMake) {
+        throw new Error('Invalid pagination cursor.');
       }
     }
 

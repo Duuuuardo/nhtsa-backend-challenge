@@ -41,4 +41,15 @@ describe('IngestionExceptionFilter', () => {
     );
     expect(result.extensions).toMatchObject({ code: 'XML_PARSE_ERROR' });
   });
+
+  it('sanitizes generic prisma errors with a safe GraphQL response', () => {
+    const err = new Error('The database is unreachable');
+    Object.assign(err, { code: 'P2025' });
+
+    const result = filter.catch(err);
+
+    expect(result).toBeInstanceOf(GraphQLError);
+    expect(result.message).toBe('An internal error occurred.');
+    expect(result.extensions).toMatchObject({ code: 'INTERNAL_SERVER_ERROR' });
+  });
 });

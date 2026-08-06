@@ -1,6 +1,5 @@
 import { HttpModule } from '@nestjs/axios';
 import { Module } from '@nestjs/common';
-import { APP_FILTER } from '@nestjs/core';
 
 import { PrismaModule } from '../database/prisma.module';
 import { NhtsaClient } from './clients/nhtsa.client';
@@ -11,7 +10,6 @@ import { IngestionService } from './services/ingestion.service';
 import { IngestionTransformer } from './transformers/ingestion.transformer';
 import { MakeTransformer } from './transformers/make.transformer';
 import { VehicleTypeTransformer } from './transformers/vehicle-type.transformer';
-import { IngestionExceptionFilter } from './filters/ingestion-exception.filter';
 
 @Module({
   imports: [
@@ -30,7 +28,6 @@ import { IngestionExceptionFilter } from './filters/ingestion-exception.filter';
     IngestionService,
     IngestionResolver,
     IngestionRepository,
-    { provide: APP_FILTER, useClass: IngestionExceptionFilter },
   ],
   exports: [IngestionService],
 })
